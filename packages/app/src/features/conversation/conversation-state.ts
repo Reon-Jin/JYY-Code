@@ -1,4 +1,5 @@
 import type { GlobalEvent, Part, SessionMessagesResponse } from "@jyycode-ai/sdk/v2/client"
+import { limitComputerScreenshots } from "./computer-screenshot-budget"
 
 export type ConversationMessage = SessionMessagesResponse[number]
 
@@ -57,9 +58,9 @@ export function emptyConversationSnapshot(sessionID: string): ConversationSnapsh
 export function snapshotFromMessages(sessionID: string, messages: SessionMessagesResponse): ConversationSnapshot {
   return {
     sessionID,
-    messages: [...messages]
+    messages: limitComputerScreenshots([...messages]
       .map((message) => ({ info: message.info, parts: sortByID(message.parts) }))
-      .sort((left, right) => compareMessages(left.info, right.info)),
+      .sort((left, right) => compareMessages(left.info, right.info))),
     processedEventIDs: [],
     needsRefetch: false,
     pendingDeltas: {},
@@ -367,7 +368,19 @@ function applyConversationEventWithIndex(
 }
 
 export function applyConversationEvent(snapshot: ConversationSnapshot, event: GlobalEvent): ConversationSnapshot {
-  return applyConversationEventWithIndex(snapshot, event)
+  const result = applyConversationEventWithIndex(snapshot, event)
+  return hasComputerResult(event) ? boundScreenshotMemory(result) : result
+}
+
+function hasComputerResult(event: GlobalEvent) {
+  const payload = normalizeConversationPayload(event.payload)
+  return payload.type === "message.part.updated" && payload.properties.part.type === "tool" &&
+    payload.properties.part.tool === "computer" && payload.properties.part.state.status === "completed"
+}
+
+function boundScreenshotMemory(snapshot: ConversationSnapshot): ConversationSnapshot {
+  const messages = limitComputerScreenshots(snapshot.messages)
+  return messages === snapshot.messages ? snapshot : { ...snapshot, messages }
 }
 
 export function applyConversationEvents(snapshot: ConversationSnapshot, events: readonly GlobalEvent[]) {
@@ -394,5 +407,5 @@ export function applyConversationEvents(snapshot: ConversationSnapshot, events: 
       messageIndex = createMessageIndex(current.messages)
     }
   }
-  return current
+  return events.some(hasComputerResult) ? boundScreenshotMemory(current) : current
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { available } from "@/tool/computer"
-import { formatObservation, runExclusive, shouldIncludeElements, toDesktopAction, validateAction } from "@/tool/computer/native"
+import { formatObservation, requireCurrentFrame, runExclusive, shouldIncludeElements, toDesktopAction, validateAction } from "@/tool/computer/native"
 import { assertComputerAction, computerMode, jevApiKey } from "@/tool/computer/mode"
 import { createComputerQueue } from "@/tool/computer/queue"
 import { assertComputerControlRequested, computerControlRequested, computerControlRequestedNewest, explicitComputerControlRequest } from "@/tool/computer/request"
@@ -57,6 +57,14 @@ describe("computer control user request", () => {
 })
 
 describe("computer control boundary", () => {
+  test("requires current screenshot identity for pointer actions including queued batches and element IDs", () => {
+    const frame = { frameID: "new" } as Parameters<typeof requireCurrentFrame>[1]
+    expect(() => requireCurrentFrame({ action: "click", x: 20, y: 30 }, frame)).toThrow("frameID")
+    expect(() => requireCurrentFrame({ action: "click", element: 1, frameID: "old" }, frame)).toThrow("frameID")
+    expect(() => requireCurrentFrame({ action: "batch", frameID: "old", steps: [{ action: "move", x: 5, y: 8 }] }, frame)).toThrow("frameID")
+    expect(() => requireCurrentFrame({ action: "drag", frameID: "new", points: [{ x: 1, y: 1 }, { x: 5, y: 8 }] }, frame)).not.toThrow()
+    expect(() => requireCurrentFrame({ action: "key", keys: "Escape" }, frame)).not.toThrow()
+  })
   test("switches from a stored Jev key and never treats an empty key as active", () => {
     expect(computerMode(undefined)).toBe("legacy")
     expect(computerMode({ type: "api", key: "  " })).toBe("legacy")
@@ -184,9 +192,11 @@ describe("computer control boundary", () => {
       x: 174, y: 45, expectWindow: "42", expectTarget: { x: 170, y: 40, width: 40, height: 30 },
     })
     frame.elements[0]!.clickPoint = { x: 205, y: 45 }
-    expect(toDesktopAction({ action: "click", element: 1 }, frame)).toMatchObject({ x: 190, y: 55 })
+    expect(toDesktopAction({ action: "click", element: 1 }, frame)).toMatchObject({ x: 185, y: 55 })
     frame.elements[0]!.clickPoint = { x: 180, y: 75 }
-    expect(toDesktopAction({ action: "click", element: 1 }, frame)).toMatchObject({ x: 190, y: 55 })
+    expect(toDesktopAction({ action: "click", element: 1 }, frame)).toMatchObject({ x: 185, y: 55 })
+    frame.elements[0]!.x = 250
+    expect(() => toDesktopAction({ action: "click", element: 1 }, frame)).toThrow("outside the desktop")
   })
 
   test("maps zoom crop coordinates through the raw frame and reports the cropped view", () => {

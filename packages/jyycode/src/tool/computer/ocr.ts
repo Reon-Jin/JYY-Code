@@ -10,6 +10,7 @@ import { startJsonLineWorker, type JsonLineWorker } from "./json-line-worker"
 export class LocalOCRParser {
   private worker?: JsonLineWorker
   private starting?: Promise<JsonLineWorker>
+  private startupAbort?: AbortController
 
   constructor(private readonly options: { python?: string; timeoutMs?: number; workerScriptPath?: string } = {}) {}
   isReady() { return !!this.worker && !this.worker.isClosed() }
@@ -22,7 +23,9 @@ export class LocalOCRParser {
   private ensureWorker(): Promise<JsonLineWorker> {
     if (this.isReady()) return Promise.resolve(this.worker!)
     if (this.starting) return this.starting
+    const startupAbort = this.startupAbort = new AbortController()
     this.starting = startJsonLineWorker({
+      signal: startupAbort.signal,
       asset: this.options.workerScriptPath ?? workerAsset,
       command: this.options.python ?? process.env.JYYCODE_COMPUTER_VISION_PYTHON ?? "python",
       startupTimeoutMs: 30_000,
@@ -53,8 +56,11 @@ export class LocalOCRParser {
   }
 
   async close() {
+    this.startupAbort?.abort()
+    await this.starting?.catch(() => undefined)
     if (this.worker) await this.worker.close()
     this.worker = undefined
+    this.startupAbort = undefined
   }
 }
 

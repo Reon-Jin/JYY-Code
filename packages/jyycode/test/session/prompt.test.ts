@@ -34,6 +34,7 @@ import { SessionProcessor } from "../../src/session/processor"
 import { failedPlanCreatePart, normalizeGeneratedTitle, SessionPrompt } from "../../src/session/prompt"
 import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
+import { registerComputerSession } from "@/tool/computer/resources"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { SessionV2 } from "../../src/v2/session"
@@ -2282,6 +2283,20 @@ it.instance(
 
 // Cancel semantics
 
+it.instance("normal completion releases registered computer resources", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+    let released = false
+    registerComputerSession(chat.id, async () => { released = true })
+    yield* llm.text("done")
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "finish" }] })
+    expect(released).toBe(true)
+  }),
+)
+
 it.instance(
   "cancel interrupts loop and resolves with an assistant message",
   () =>
@@ -2298,8 +2313,11 @@ it.instance(
 
       const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* llm.wait(1)
+      let computerReleased = false
+      registerComputerSession(chat.id, async () => { computerReleased = true })
       yield* prompt.cancel(chat.id)
       const exit = yield* Fiber.await(fiber)
+      expect(computerReleased).toBe(true)
       expect(Exit.isSuccess(exit)).toBe(true)
       if (Exit.isSuccess(exit)) {
         expect(exit.value.info.role).toBe("assistant")

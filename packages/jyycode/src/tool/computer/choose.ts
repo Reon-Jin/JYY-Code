@@ -33,6 +33,9 @@ export type ChooseDependencies = {
 
 const localParser = new LocalVisualParser()
 const localOCR = new LocalOCRParser()
+export async function stopChooseWorkers() {
+  await Promise.all([localParser.close(), localOCR.close()])
+}
 
 function frameOf(observation: Observation): Frame | undefined {
   if (!observation.frameID || !observation.windowID || !observation.rawImage) return undefined

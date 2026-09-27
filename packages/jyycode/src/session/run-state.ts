@@ -7,6 +7,7 @@ import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID } from "./schema"
 import { SessionStatus } from "./status"
+import { releaseComputerSession } from "@/tool/computer/resources"
 
 export interface Interface {
   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void, Session.BusyError>
@@ -60,6 +61,7 @@ export const layer = Layer.effect(
       const next = Runner.make<MessageV2.WithParts>(data.scope, {
         onIdle: Effect.gen(function* () {
           data.runners.delete(sessionID)
+          yield* Effect.promise(() => releaseComputerSession(sessionID))
           yield* status.set(sessionID, { type: "idle" })
         }),
         onBusy: status.set(sessionID, { type: "busy" }),
@@ -81,6 +83,7 @@ export const layer = Layer.effect(
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
       if (!existing || !existing.busy) {
+        yield* Effect.promise(() => releaseComputerSession(sessionID))
         yield* status.set(sessionID, { type: "idle" })
         return
       }

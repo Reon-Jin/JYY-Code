@@ -96,6 +96,7 @@ export function normalizeVisualBoxes(frame: Pick<VisualFrame, "width" | "height"
 export class LocalVisualParser implements VisualParser {
   private worker?: JsonLineWorker
   private starting?: Promise<JsonLineWorker>
+  private startupAbort?: AbortController
 
   constructor(private readonly options: { modelPath?: string; python?: string; device?: "cpu" | "cuda"; timeoutMs?: number; workerScriptPath?: string } = {}) {}
   isReady() { return !!this.worker && !this.worker.isClosed() }
@@ -113,7 +114,9 @@ export class LocalVisualParser implements VisualParser {
     if (this.starting) return this.starting
     const model = this.modelPath()
     if (!model || !existsSync(model)) return Promise.reject(new VisionUnavailableError("Local visual detector weight is unavailable"))
+    const startupAbort = this.startupAbort = new AbortController()
     this.starting = startJsonLineWorker({
+      signal: startupAbort.signal,
       asset: this.options.workerScriptPath ?? workerAsset,
       command: this.options.python ?? process.env.JYYCODE_COMPUTER_VISION_PYTHON ?? "python",
       args: ["--model", model, ...(this.options.device ? ["--device", this.options.device] : [])],
@@ -178,8 +181,11 @@ export class LocalVisualParser implements VisualParser {
   }
 
   async close() {
+    this.startupAbort?.abort()
+    await this.starting?.catch(() => undefined)
     if (this.worker) await this.worker.close()
     this.worker = undefined
+    this.startupAbort = undefined
   }
 }
 

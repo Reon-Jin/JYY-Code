@@ -25,7 +25,10 @@ export async function startJsonLineWorker(input: {
   command: string
   args?: string[]
   startupTimeoutMs?: number
+  signal?: AbortSignal
+  idleTimeoutMs?: number
 }): Promise<JsonLineWorker> {
+  if (input.signal?.aborted) throw new Error("Computer model startup cancelled")
   const dir = await mkdtemp(path.join(Global.Path.tmp, "computer-model-"))
   const script = path.join(dir, "worker.py")
   let scope: Scope.Scope | undefined
@@ -62,6 +65,7 @@ export async function startJsonLineWorker(input: {
     let pending: { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void } | undefined
     let closed = false
     let closing: Promise<void> | undefined
+    let idleTimer: ReturnType<typeof setTimeout> | undefined
     const onExit = () => { try { process.kill(Number(spawned.handle.pid)) } catch { /* already exited */ } }
     // Stop the child before Global.Path.tmp's exit hook attempts to remove its script.
     process.prependOnceListener("exit", onExit)
@@ -69,9 +73,11 @@ export async function startJsonLineWorker(input: {
     const close = (reason = new Error("Computer model worker stopped")) => {
       if (closing) return closing
       closed = true
+      clearTimeout(idleTimer)
       fail(reason)
       lines.close()
       stdin.end()
+      try { process.kill(Number(spawned.handle.pid)) } catch { /* already exited */ }
       process.removeListener("exit", onExit)
       closing = (async () => {
         await Effect.runPromise(Scope.close(spawned.processScope, Exit.void)).catch(() => undefined)
@@ -100,25 +106,36 @@ export async function startJsonLineWorker(input: {
       (cause) => { if (!closed) void close(new Error(String(cause))) },
     )
     let startupTimer: ReturnType<typeof setTimeout> | undefined
+    const abortStartup = () => { void close(new Error("Computer model startup cancelled")) }
+    input.signal?.addEventListener("abort", abortStartup, { once: true })
+    if (input.signal?.aborted) abortStartup()
     try {
       await Promise.race([
         ready,
         new Promise<never>((_, reject) => { startupTimer = setTimeout(() => reject(new Error("Computer model worker startup timed out")), input.startupTimeoutMs ?? 45_000) }),
       ])
     } catch (error) { await close(); throw error }
-    finally { clearTimeout(startupTimer) }
+    finally { clearTimeout(startupTimer); input.signal?.removeEventListener("abort", abortStartup) }
+    const scheduleIdle = () => {
+      clearTimeout(idleTimer)
+      if (closed) return
+      idleTimer = setTimeout(() => { void close() }, input.idleTimeoutMs ?? 30_000)
+      idleTimer.unref?.()
+    }
+    scheduleIdle()
     let tail: Promise<unknown> = Promise.resolve()
     return {
       request: (value, signal, timeoutMs = 10_000) => {
         const run = () => new Promise<Record<string, unknown>>((resolve, reject) => {
           if (closed) { reject(new Error("Computer model worker stopped")); return }
           if (signal?.aborted) { reject(new Error("Computer model request cancelled")); return }
+          clearTimeout(idleTimer)
           const abort = () => { void close(new Error("Computer model request cancelled")) }
           signal?.addEventListener("abort", abort, { once: true })
           const timeout = setTimeout(() => { void close(new Error("Computer model request timed out")) }, timeoutMs)
           pending = {
-            resolve: (reply) => { clearTimeout(timeout); signal?.removeEventListener("abort", abort); resolve(reply) },
-            reject: (error) => { clearTimeout(timeout); signal?.removeEventListener("abort", abort); reject(error) },
+            resolve: (reply) => { clearTimeout(timeout); signal?.removeEventListener("abort", abort); scheduleIdle(); resolve(reply) },
+            reject: (error) => { clearTimeout(timeout); signal?.removeEventListener("abort", abort); scheduleIdle(); reject(error) },
           }
           try { stdin.write(JSON.stringify(value) + "\n") }
           catch (error) { void close(error instanceof Error ? error : new Error(String(error))) }

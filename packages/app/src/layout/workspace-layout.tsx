@@ -434,6 +434,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
             </Show>
             <MessageTimeline
               messages={props.conversation?.messages ?? []}
+              running={props.statuses[props.activeSessionID!]?.type === "busy" || props.statuses[props.activeSessionID!]?.type === "retry"}
               goal={selected()?.goal}
               compaction={props.compaction}
               loading={props.conversationLoading}

@@ -67,6 +67,15 @@ export type Observation = {
   }>
 }
 
+/** Never reinterpret a queued pointer call against a newer screenshot. */
+export function requireCurrentFrame(input: Action, frame: Observation | undefined) {
+  const steps = input.action === "batch" ? input.steps : [input]
+  if (!steps.some((step) => ["move", "click", "scroll", "drag"].includes(step.action))) return
+  if (!frame?.frameID || input.frameID !== frame.frameID) {
+    throw new Error("Pointer actions require frameID from the latest screenshot; observe again if it changed")
+  }
+}
+
 function isInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value)
 }
@@ -201,10 +210,15 @@ export function toDesktopAction(input: Action, frame: Observation): Action {
       clickPoint.y >= target.y && clickPoint.y < target.y + target.height &&
       clickPoint.x >= frame.screen.x && clickPoint.x < frame.screen.x + frame.screen.width &&
       clickPoint.y >= frame.screen.y && clickPoint.y < frame.screen.y + frame.screen.height
+    const left = Math.max(target.x, frame.screen.x)
+    const top = Math.max(target.y, frame.screen.y)
+    const right = Math.min(target.x + target.width, frame.screen.x + frame.screen.width)
+    const bottom = Math.min(target.y + target.height, frame.screen.y + frame.screen.height)
+    if (left >= right || top >= bottom) throw new Error(`Element #${input.element} is outside the desktop; observe again`)
     return {
       ...rest,
-      x: clickable ? clickPoint.x : Math.round(target.x + target.width / 2),
-      y: clickable ? clickPoint.y : Math.round(target.y + target.height / 2),
+      x: clickable ? clickPoint.x : Math.min(right - 1, Math.floor((left + right) / 2)),
+      y: clickable ? clickPoint.y : Math.min(bottom - 1, Math.floor((top + bottom) / 2)),
       expectWindow: frame.windowID,
       expectTarget: {
         name: target.name,

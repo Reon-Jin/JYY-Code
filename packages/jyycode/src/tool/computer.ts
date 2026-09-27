@@ -4,14 +4,24 @@ import { Session } from "@/session/session"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Auth } from "@/auth"
 import type { Provider } from "@/provider/provider"
-import { formatObservation, runExclusive, runNative, shouldIncludeElements, toDesktopAction, validateAction, type Action, type Observation } from "./computer/native"
-import { runChoose } from "./computer/choose"
+import { formatObservation, requireCurrentFrame, runExclusive, runNative, shouldIncludeElements, toDesktopAction, validateAction, type Action, type Observation } from "./computer/native"
+import { runChoose, stopChooseWorkers } from "./computer/choose"
+import { stopWindows } from "./computer/windows-worker"
+import { hasComputerSessions, registerComputerSession } from "./computer/resources"
 import { createFrame, desktopPointToImage, FrameStore } from "./computer/frame"
 import { createZoom, zoomTargetsUnchanged } from "./computer/zoom"
 import { JEV_CREDENTIAL_ID, assertComputerAction, computerMode, jevApiKey } from "./computer/mode"
 import { assertComputerControlRequested, assertComputerControlRequestedLive } from "./computer/request"
 
 const frameStore = new FrameStore()
+
+function trackComputerSession(sessionID: string) {
+  // Capture only the ID, never Tool.Context and its entire message/image history.
+  registerComputerSession(sessionID, () => runExclusive(async () => {
+    frameStore.forget(sessionID)
+    if (!hasComputerSessions()) await Promise.all([stopWindows(), stopChooseWorkers()])
+  }))
+}
 
 function sameDesktopGeometry(a: Observation, b: Observation) {
   return a.windowID === b.windowID && a.screen.x === b.screen.x && a.screen.y === b.screen.y &&
@@ -56,7 +66,9 @@ export const Parameters = Schema.Struct({
   ...StepParameters.fields,
   action: Schema.Literals(["observe", "zoom", "move", "click", "scroll", "key", "type", "drag", "wait", "batch", "choose"]),
   steps: Schema.optional(Schema.Array(StepParameters)),
-  frameID: Schema.optional(Schema.String),
+  frameID: Schema.optional(Schema.String.annotate({
+    description: "Required for zoom and every pointer action or mouse batch. Copy the frameID of the latest returned screenshot; coordinates belong to that image or crop.",
+  })),
   intent: Schema.optional(Schema.String),
   literalText: Schema.optional(Schema.String),
   allowedActions: Schema.optional(Schema.Array(Schema.Literals(["click", "double_click", "right_click", "scroll", "type", "key", "drag"]))),
@@ -93,6 +105,7 @@ export const ComputerTool = Tool.define(
         "Actions: move (x,y); click (element number from latest observation, or optional x,y; button left/right/middle, double); scroll (direction and amount in wheel units, optional x,y); " +
         "key (keys such as Ctrl+L, Enter, Alt+Tab); type (literal text); drag (x,y,toX,toY, or points=[{x,y},...] with 2-128 points for one continuous curved stroke); wait (milliseconds, optional untilWindow substring to return as soon as an app opens). " +
         "For a small or ambiguous target, use action=zoom with x,y near the target and frameID from the latest observation. Zoom returns an 800×600-or-smaller crop at raw pixel resolution; the next coordinate action must include that zoom frameID and use coordinates in the crop. " +
+        "Every pointer action (move, click, scroll, drag, or a batch containing one) requires the latest screenshot frameID. Use image pixels, never normalized 0-1000 values or DPI-scaled desktop coordinates. After zoom, keep using the crop dimensions until the next result replaces it. For games and drawing canvases without named controls, zoom before a small target or precise stroke; do not guess its location on the downscaled full screen. " +
         "Use action=batch with steps=[{action:...}, ...] (1-12 ordered steps) for predictable sequences, such as clicking a field then typing, or selecting a drawing tool then making several strokes. Plan one stable sequence and execute it in one call; stop at menus, dialogs, or other uncertain changes to inspect the returned screenshot. " +
         "Use click element for named controls and drag points for curves; the host handles exact desktop coordinates and stops clicks, scrolling and drags if the foreground window changed. Do not write shell scripts for mouse/keyboard control or screen coordinate mapping. " +
         "After launching an app, prefer wait with untilWindow over a fixed delay. Every action, including click, wait, and batch, already returns a fresh screenshot. Do not call observe again solely to refresh the screen; use it when the desktop changed outside a tool action or when you need an accessibility element map. Standard resolution is fast; set resolution=high when small controls or text are not legible. " +
@@ -125,6 +138,7 @@ export const ComputerTool = Tool.define(
           if (!available(flags.client, current)) throw new Error("Computer control is no longer available in this session")
           return yield* Effect.promise(() =>
             runExclusive(async () => {
+              trackComputerSession(ctx.sessionID)
               assertComputerControlRequestedLive(ctx.sessionID)
               const authorizedNative = (action: Action, signal?: AbortSignal) => {
                 assertComputerControlRequestedLive(ctx.sessionID)
@@ -196,10 +210,7 @@ export const ComputerTool = Tool.define(
                     url: `data:image/png;base64,${zoom.png.toString("base64")}` }],
                 }
               }
-              if (frame?.view && ["move", "click", "scroll", "drag", "batch"].includes(input.action) &&
-                params.frameID !== frame.frameID) {
-                throw new Error("Coordinate action on a zoomed screenshot requires its latest frameID")
-              }
+              requireCurrentFrame(input, frame)
               const includeElements = shouldIncludeElements(input)
               const native = frame ? toDesktopAction({ ...input, includeElements }, frame) : { ...input, includeElements }
               const zoomPoints = frame?.view ? zoomActionPoints(input) : []

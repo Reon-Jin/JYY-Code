@@ -15,6 +15,12 @@ const screens = [
 ] as const
 
 describe("computer frame geometry", () => {
+  test("keeps the final Retina raw pixel inside the last desktop point", () => {
+    const frame = createFrame({ id: "retina", capturedAt: 1, screen: { x: -1920, y: 0, width: 1920, height: 1080 },
+      rawImageSize: { width: 3840, height: 2160 }, displayImageSize: { width: 1280, height: 720 },
+      monitors: [], foregroundWindow: { id: "1", title: "App" } })
+    expect(imagePointToDesktop(frame, { x: 3839, y: 2159 })).toEqual({ x: -1, y: 1079 })
+  })
   test("keeps the latest frame per session and evicts old sessions", () => {
     const store = new FrameStore(2)
     const observation = (frameID: string) => ({

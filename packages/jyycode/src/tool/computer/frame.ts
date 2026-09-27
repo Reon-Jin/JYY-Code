@@ -47,8 +47,8 @@ export function imagePointToDesktop(frame: Frame, point: Point, space: "raw" | "
   const size = space === "raw" ? frame.rawImageSize : frame.displayImageSize
   requirePoint(point, size)
   return {
-    x: frame.screen.x + Math.round(point.x * frame.screen.width / size.width),
-    y: frame.screen.y + Math.round(point.y * frame.screen.height / size.height),
+    x: frame.screen.x + Math.min(frame.screen.width - 1, Math.round(point.x * frame.screen.width / size.width)),
+    y: frame.screen.y + Math.min(frame.screen.height - 1, Math.round(point.y * frame.screen.height / size.height)),
   }
 }
 

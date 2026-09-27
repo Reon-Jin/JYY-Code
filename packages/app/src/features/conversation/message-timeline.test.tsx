@@ -51,6 +51,18 @@ function longConversation(count: number): ConversationMessage[] {
 afterEach(cleanup)
 
 describe("MessageTimeline", () => {
+  it("unmounts the activity animation on stop even if the last assistant step has no final answer", () => {
+    const [running, setRunning] = createSignal(true)
+    const { container } = render(() => <MessageTimeline running={running()} messages={[
+      conversation([{ id: "r", sessionID, messageID: assistantInfo.id, type: "reasoning", text: "playing",
+        time: { start: 2 } }], { ...assistantInfo, time: { created: 2 } }),
+    ]} />)
+    expect(container.querySelector(".activity-group__spinner")).not.toBeNull()
+    setRunning(false)
+    expect(container.querySelector(".activity-group__spinner")).toBeNull()
+    expect(screen.getByText("思考与工具调用")).toBeVisible()
+  })
+
   it("mounts the latest 100 messages and reveals older messages in stable batches", async () => {
     const user = userEvent.setup()
     const initial = longConversation(205)

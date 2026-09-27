@@ -28,6 +28,10 @@ function contains(box: Rect, point: Point) {
 export function safePoint(target: VisualTarget, others: readonly VisualTarget[]): Point | undefined {
   const box = target.box
   if (box.width < 4 || box.height < 4 || target.visibility !== "visible") return undefined
+  if (target.clickPoint && (target.sources.includes("uia") || target.sources.includes("ax")) &&
+    Number.isSafeInteger(target.clickPoint.x) && Number.isSafeInteger(target.clickPoint.y) && contains(box, target.clickPoint)) {
+    return target.clickPoint
+  }
   const xs = [0.5, 0.3, 0.7]
   const ys = [0.5, 0.3, 0.7]
   for (const fy of ys) for (const fx of xs) {

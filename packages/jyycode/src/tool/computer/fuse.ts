@@ -1,5 +1,5 @@
 import type { Observation } from "./native"
-import type { Frame, Point, Rect } from "./frame"
+import { desktopPointToImage, type Frame, type Point, type Rect } from "./frame"
 import type { VisualBox } from "./vision"
 
 export type TargetKind = "button" | "input" | "menu" | "link" | "icon" | "scrollable" | "canvas" | "unknown"
@@ -16,6 +16,7 @@ export type VisualTarget = {
   enabled: boolean
   accessibilityIndex?: number
   automationId?: string
+  clickPoint?: Point
 }
 export type OCRToken = { text: string; box: Rect; confidence: number }
 export type FusionResult = { frameID: string; targets: VisualTarget[]; truncated: boolean }
@@ -73,11 +74,16 @@ export function fuseTargets(input: {
   for (const element of input.elements) {
     const box = desktopRectToRaw(frame, element)
     if (!box) continue
+    const nativePoint = element.clickPoint
+    const clickPoint = nativePoint && Number.isSafeInteger(nativePoint.x) && Number.isSafeInteger(nativePoint.y) &&
+      contains(element, nativePoint) && contains(frame.screen, nativePoint)
+      ? desktopPointToImage(frame, nativePoint, "raw") : undefined
     add({
       kind: kindOf(element.role), box,
       label: element.name || element.automationId || undefined,
       sources: [input.accessibilitySource], visibility: "visible", confidence: 0.9,
       enabled: element.enabled, accessibilityIndex: element.index, automationId: element.automationId,
+      clickPoint: clickPoint && contains(box, clickPoint) ? clickPoint : undefined,
     })
   }
   for (const detection of input.detected) {

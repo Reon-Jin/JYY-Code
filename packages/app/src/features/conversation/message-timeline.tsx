@@ -30,6 +30,7 @@ type GoalTimelineMarkerEvent = {
 
 export type MessageTimelineProps = {
   messages: readonly ConversationMessage[]
+  running?: boolean
   goal?: Goal
   compaction?: CompactionStatus | null
   loading?: boolean
@@ -250,6 +251,7 @@ function PresentedGroupView(props: {
 function PresentedMessageView(props: {
   message: PresentedConversationMessage
   pendingActivityKeys: ReadonlySet<string>
+  running: boolean
 }) {
   const groupKeys = createMemo(() => props.message.groups.map(groupKey))
   const groupsByKey = createMemo(() => new Map(props.message.groups.map((group) => [groupKey(group), group])))
@@ -281,7 +283,7 @@ function PresentedMessageView(props: {
           </For>
         </Show>
         <Show when={props.message.pendingEmpty}>
-          <ActivityGroup label={tr("conversation.thinking-and-tool-calling")} count={0} pending>
+          <ActivityGroup label={tr("conversation.thinking-and-tool-calling")} count={0} pending={props.running}>
             <span class="conversation-message__waiting" role="status">
               {tr("conversation.waiting-for-execution")}
             </span>
@@ -293,6 +295,7 @@ function PresentedMessageView(props: {
 }
 
 export function MessageTimeline(props: MessageTimelineProps) {
+  const running = () => props.running ?? props.messages.some((m) => m.info.role === "assistant" && m.info.time.completed === undefined)
   const [hasNewMessages, setHasNewMessages] = createSignal(false)
   const [oldestVisible, setOldestVisible] = createSignal<{ sessionID: string; messageID: string }>()
   let conversationPainted = false
@@ -327,6 +330,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
   const messageIDs = createMemo(() => visibleMessages().map((message) => message.info.id))
   const messagesByID = createMemo(() => new Map(visibleMessages().map((message) => [message.info.id, message])))
   const pendingActivityKeys = createMemo(() => {
+    if (!running()) return new Set<string>()
     const groups = visibleMessages().flatMap((message) => message.groups)
     const keys = new Set<string>()
     let hasFormalContentAfter = false
@@ -490,7 +494,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
                 </Button>
               </Show>
               <For each={markersByMessageIndex().get(-1) ?? []}>
-                {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb} />}
+                {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb && props.running !== false} />}
               </For>
               <For each={messageIDs()}>
                 {(messageID, index) => (
@@ -498,9 +502,10 @@ export function MessageTimeline(props: MessageTimelineProps) {
                     <PresentedMessageView
                       message={messagesByID().get(messageID)!}
                       pendingActivityKeys={pendingActivityKeys()}
+                      running={running()}
                     />
                     <For each={markersByMessageIndex().get(visibleStartIndex() + index()) ?? []}>
-                      {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb} />}
+                      {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb && props.running !== false} />}
                     </For>
                   </>
                 )}

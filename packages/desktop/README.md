@@ -79,6 +79,18 @@ numbers on the screenshot. Each action returns a new observation. The tool suppo
 click, double click, drag, vertical/horizontal wheel scrolling, key combinations, and literal text entry. Element numbers
 describe only the current observation.
 
+Every pointer action, including an element click or a batch containing mouse input, must supply the latest `frameID`.
+This prevents queued or parallel calls from applying an old screenshot's coordinates to a newer view. Coordinates are
+image pixels, not normalized 0–1000 values or Windows logical/DPI coordinates. For small game targets or precise canvas
+strokes, use `zoom` to inspect raw pixels before acting. Jev also preserves validated accessibility clickable points.
+
+The desktop conversation cache independently retains at most three computer screenshots, with a 16 MiB URL-string
+budget per conversation; text and user uploads are preserved. Server cleanup is still responsible for stored blobs.
+Stopping or completing a session releases its computer frame and the shared native/vision/OCR workers when no other
+computer session owns them. Workers also expire after 30 seconds without requests; startup is cancellable. Activity
+animations follow the actual session status and stop even when the interrupted step has no final answer.
+See the [resource and positioning regression report](../../docs/plans/2026-09-27-computer-resource-lifecycle.md).
+
 In legacy mode, use `action=zoom` with a point near a small target and the latest `frameID`. It returns an unscaled
 raw-pixel crop of at most 800×600 pixels. The following coordinate action uses the crop's coordinates and must include
 that zoom `frameID`; the host maps the point back through the raw screenshot to the desktop. On Windows, numbered

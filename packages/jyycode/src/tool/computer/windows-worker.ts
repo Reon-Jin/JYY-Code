@@ -24,7 +24,8 @@ function pump(source: Stream.Stream<Uint8Array, unknown>, target: PassThrough) {
   )
 }
 
-async function start(): Promise<Worker> {
+async function start(signal: AbortSignal): Promise<Worker> {
+  if (signal.aborted) throw new Error("Computer helper startup cancelled")
   const dir = await mkdtemp(path.join(Global.Path.tmp, "computer-worker-"))
   const script = path.join(dir, "computer.ps1")
   let scope: Scope.Scope | undefined
@@ -60,6 +61,7 @@ async function start(): Promise<Worker> {
     let pending: { resolve: (value: Observation) => void; reject: (error: Error) => void } | undefined
     let closed = false
     let closing: Promise<void> | undefined
+    let idleTimer: ReturnType<typeof setTimeout> | undefined
     const onExit = () => { try { process.kill(Number(spawned.handle.pid)) } catch { /* already exited */ } }
     // Stop PowerShell before Global.Path.tmp's exit hook attempts to remove its script.
     process.prependOnceListener("exit", onExit)
@@ -82,6 +84,7 @@ async function start(): Promise<Worker> {
     const close = (reason = new Error("Computer helper stopped")) => {
       if (closing) return closing
       closed = true
+      clearTimeout(idleTimer)
       shared = undefined
       fail(reason)
       lines.close()
@@ -99,26 +102,37 @@ async function start(): Promise<Worker> {
       (cause) => { if (!closed) { fail(new Error(String(cause))); void close() } },
     )
     let startupTimer: ReturnType<typeof setTimeout> | undefined
+    const abortStartup = () => { void close(new Error("Computer helper startup cancelled")) }
+    signal.addEventListener("abort", abortStartup, { once: true })
+    if (signal.aborted) abortStartup()
     try {
       await Promise.race([
         ready,
         new Promise<never>((_, reject) => { startupTimer = setTimeout(() => reject(new Error("Computer helper startup timed out")), 10_000) }),
       ])
     }
-    catch (error) { void close(); throw error }
-    finally { clearTimeout(startupTimer) }
+    catch (error) { await close(); throw error }
+    finally { clearTimeout(startupTimer); signal.removeEventListener("abort", abortStartup) }
+    const scheduleIdle = () => {
+      clearTimeout(idleTimer)
+      if (closed) return
+      idleTimer = setTimeout(() => { void close() }, 30_000)
+      idleTimer.unref?.()
+    }
+    scheduleIdle()
     return {
       request: (input, image, signal) => new Promise<Observation>((resolve, reject) => {
         if (closed) { reject(new Error("Computer helper stopped")); return }
         if (pending) { reject(new Error("Computer helper is already processing an action")); return }
         if (signal?.aborted) { reject(new Error("Computer operation interrupted")); return }
+        clearTimeout(idleTimer)
         const abort = () => { void close(new Error("Computer operation interrupted")) }
         signal?.addEventListener("abort", abort, { once: true })
         const timeoutMs = input.action === "batch" ? 25_000 : input.includeElements ? 18_000 : 12_000
         const timeout = setTimeout(() => { void close(new Error(`Computer operation timed out after ${timeoutMs}ms`)) }, timeoutMs)
         pending = {
-          resolve: (value) => { clearTimeout(timeout); signal?.removeEventListener("abort", abort); resolve(value) },
-          reject: (error) => { clearTimeout(timeout); signal?.removeEventListener("abort", abort); reject(error) },
+          resolve: (value) => { clearTimeout(timeout); signal?.removeEventListener("abort", abort); scheduleIdle(); resolve(value) },
+          reject: (error) => { clearTimeout(timeout); signal?.removeEventListener("abort", abort); scheduleIdle(); reject(error) },
         }
         try { stdin.write(JSON.stringify({ input, image }) + "\n") }
         catch (error) { void close(error instanceof Error ? error : new Error(String(error))) }
@@ -127,18 +141,24 @@ async function start(): Promise<Worker> {
       isClosed: () => closed,
     }
   } catch (error) {
-    if (scope) void Effect.runPromise(Scope.close(scope, Exit.void)).catch(() => undefined)
-    void rm(dir, { recursive: true, force: true }).catch(() => undefined)
+    if (scope) await Effect.runPromise(Scope.close(scope, Exit.void)).catch(() => undefined)
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined)
     throw error
   }
 }
 
 let shared: Promise<Worker> | undefined
+let startupAbort: AbortController | undefined
 const queue = createComputerQueue()
 
 export function runWindows(input: Action, image: string, signal?: AbortSignal) {
   const run = async () => {
-    const worker = await (shared ??= start().catch((error) => { shared = undefined; throw error }))
+    if (!shared) {
+      startupAbort = new AbortController()
+      shared = start(signal ? AbortSignal.any([signal, startupAbort.signal]) : startupAbort.signal)
+        .catch((error) => { shared = undefined; throw error })
+    }
+    const worker = await shared
     if (signal?.aborted) throw new Error("Computer operation interrupted")
     try { return await worker.request(input, image, signal) }
     catch (error) {
@@ -150,5 +170,7 @@ export function runWindows(input: Action, image: string, signal?: AbortSignal) {
 }
 
 export async function stopWindows() {
-  if (shared) await (await shared).close()
+  const current = shared
+  startupAbort?.abort()
+  if (current) await (await current.catch(() => undefined))?.close()
 }

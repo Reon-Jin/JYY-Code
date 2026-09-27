@@ -142,6 +142,18 @@ describe("optional OCR parser", () => {
 })
 
 describe("visual target fusion and closed action candidates", () => {
+  test("preserves a native clickable point through fusion and Jev candidate generation", () => {
+    const input = { frame, accessibilitySource: "uia" as const, detected: [], ocr: [], elements: [{
+      index: 1, name: "Save", role: "Button", automationId: "save", x: -1800, y: 100,
+      width: 100, height: 40, enabled: true, focused: false, depth: 1, clickPoint: { x: -1788, y: 110 },
+    }] }
+    const fused = fuseTargets(input)
+    expect(buildCandidates({ frame, intent: "Save", targets: fused.targets, allowedActions: ["click"] }).items[0]?.point)
+      .toEqual({ x: 132, y: 110 })
+    input.elements[0]!.clickPoint = { x: 5000, y: 100 }
+    expect(buildCandidates({ frame, intent: "Save", targets: fuseTargets(input).targets, allowedActions: ["click"] }).items[0]?.point)
+      .toEqual({ x: 170, y: 120 })
+  })
   test("tiles large raw screenshots and deduplicates overlap detections", async () => {
     const regions = imageTiles(2560, 1600)
     expect(regions).toHaveLength(6)
