@@ -294,6 +294,7 @@ $title = New-Object System.Text.StringBuilder 256
 $windowName = $title.ToString()
 if ($inputData.includeElements) {
   try {
+  $scanBudgetMs = if ($inputData.uiScanBudgetMs) { [int]$inputData.uiScanBudgetMs } else { 2500 }
   $cache = New-Object System.Windows.Automation.CacheRequest
   $cache.TreeScope = [System.Windows.Automation.TreeScope]::Element
   $cache.Add([System.Windows.Automation.AutomationElement]::NameProperty)
@@ -315,7 +316,7 @@ if ($inputData.includeElements) {
     # UI Automation providers are cross-process and can be arbitrarily slow.
     # Keep the element map useful without making every observation wait for a full tree.
     $scanClock = [System.Diagnostics.Stopwatch]::StartNew()
-    while ($queue.Count -gt 0 -and $elements.Count -lt 160 -and $visited -lt 800 -and $scanClock.ElapsedMilliseconds -lt 2500) {
+    while ($queue.Count -gt 0 -and $elements.Count -lt 160 -and $visited -lt 800 -and $scanClock.ElapsedMilliseconds -lt $scanBudgetMs) {
     $entry = $queue.Dequeue()
     $element = $entry[0]
     $depth = [int]$entry[1]
@@ -339,7 +340,7 @@ if ($inputData.includeElements) {
             enabled = [bool]$current.IsEnabled; focused = [bool]$current.HasKeyboardFocus; depth = $depth
           }
           if ($record.enabled -and $role -match 'Button|Edit|MenuItem|TabItem|ListItem|CheckBox|RadioButton|ComboBox|Hyperlink|TreeItem|ScrollBar|Slider' -and
-              $scanClock.ElapsedMilliseconds -lt 2500) {
+              $scanClock.ElapsedMilliseconds -lt $scanBudgetMs) {
             try {
               $clickable = [System.Windows.Point]::new(0, 0)
               if ($element.TryGetClickablePoint([ref]$clickable) -and

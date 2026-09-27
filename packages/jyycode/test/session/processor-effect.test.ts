@@ -17,6 +17,7 @@ import { Session } from "@/session/session"
 import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionProcessor } from "../../src/session/processor"
+import { flushComputerScreenshotMaintenance } from "../../src/session/computer-screenshot-maintenance"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { SessionSummary } from "../../src/session/summary"
@@ -255,6 +256,45 @@ it.live("session.processor effect tests capture llm input cleanly", () =>
         expect(value).toBe("continue")
         expect(calls).toBe(1)
         expect(parts.some((part) => part.type === "text" && part.text === "hello")).toBe(true)
+      }),
+    { config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("session.processor skips workspace snapshots during desktop control", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+        yield* llm.text("done")
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "用电脑控制能力打开游戏")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+          skipWorkspaceSnapshots: true,
+        })
+
+        const result = yield* handle.process({
+          user: parent,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "用电脑控制能力打开游戏" }],
+          tools: {},
+        })
+        const steps = MessageV2.parts(msg.id).filter(
+          (part): part is MessageV2.StepStartPart | MessageV2.StepFinishPart =>
+            part.type === "step-start" || part.type === "step-finish",
+        )
+
+        expect(result).toBe("continue")
+        expect(steps.map((part) => part.type)).toEqual(["step-start", "step-finish"])
+        expect(steps.every((part) => part.snapshot === undefined)).toBe(true)
       }),
     { config: (url) => providerCfg(url) },
   ),
@@ -914,6 +954,7 @@ it.live("session.processor effect tests retire older computer screenshots after 
             }),
           },
         })
+        yield* Effect.promise(() => flushComputerScreenshotMaintenance())
         const parts = (yield* MessageV2.partsAsync(msg.id)).filter(
           (part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "computer",
         )

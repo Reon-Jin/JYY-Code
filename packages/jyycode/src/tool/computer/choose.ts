@@ -5,6 +5,7 @@ import { selectJev, type JevDecision } from "./jev"
 import { runNative, type Action, type Observation, type Step } from "./native"
 import { LocalVisualParser, parseTiled, type VisualBox, type VisualFrame, type VisualParser } from "./vision"
 import { LocalOCRParser } from "./ocr"
+import { visualTargetUnchanged } from "./zoom"
 
 export type ChooseInput = {
   intent: string
@@ -65,6 +66,8 @@ function sameFrameScreen(a: Frame, b: Frame) {
 }
 
 function regionFromIntent(frame: VisualFrame, intent: string): Rect | undefined {
+  // Only relative corner words are considered. Numeric screenshot coordinates
+  // remain untouched and OCR boxes are mapped back to raw pixels afterward.
   const top = /上|top/i.test(intent)
   const bottom = /下|bottom/i.test(intent)
   const left = /左|left/i.test(intent)
@@ -73,6 +76,19 @@ function regionFromIntent(frame: VisualFrame, intent: string): Rect | undefined 
   const width = Math.ceil(frame.width / 2)
   const height = Math.ceil(frame.height / 2)
   return { x: right ? frame.width - width : 0, y: bottom ? frame.height - height : 0, width, height }
+}
+
+export function scaleOCRTokensToRaw(tokens: readonly OCRToken[], display: { width: number; height: number },
+  raw: { width: number; height: number }): OCRToken[] {
+  const scaleX = raw.width / display.width
+  const scaleY = raw.height / display.height
+  return tokens.map((token) => {
+    const x = Math.floor(token.box.x * scaleX)
+    const y = Math.floor(token.box.y * scaleY)
+    return { ...token, box: { x, y,
+      width: Math.min(raw.width - x, Math.max(2, Math.ceil((token.box.x + token.box.width) * scaleX) - x)),
+      height: Math.min(raw.height - y, Math.max(2, Math.ceil((token.box.y + token.box.height) * scaleY) - y)) } }
+  })
 }
 
 function hasExplicitPosition(intent: string) {
@@ -128,12 +144,16 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
   const native = deps.native ?? runNative
   const parser = deps.parser ?? localParser
   const select = deps.select ?? selectJev
-  const observed = await native({ action: "observe", includeElements: true, captureRaw: true, resolution: input.resolution }, signal)
+  const keyOnly = input.keys !== undefined && input.allowedActions?.length === 1 && input.allowedActions[0] === "key"
+  // Jev needs some UIA candidates, but a deep tree walk can consume the entire
+  // latency budget before vision or the action itself starts.
+  const observed = await native({ action: "observe", includeElements: !keyOnly, captureRaw: !keyOnly,
+    uiScanBudgetMs: keyOnly ? undefined : 350, resolution: input.resolution }, signal)
   const frame = frameOf(observed.observation)
   const fallback = (reasonCode: string, result: NativeResult = observed): ChooseResult => ({
     status: "needs_vision", reasonCode, observation: result.observation, png: result.png,
   })
-  if (!frame || !observed.rawPng) return fallback("raw_frame_unavailable")
+  if (!frame || (!keyOnly && !observed.rawPng)) return fallback("raw_frame_unavailable")
   const source = process.platform === "darwin" ? "ax" : "uia"
   let fusion = fuseTargets({ frame, accessibilitySource: source, elements: observed.observation.elements, detected: [], ocr: [] })
   let relevant = uniqueAccessibilityMatch(fusion.targets, input.intent)
@@ -141,7 +161,9 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
   let detections: VisualBox[] = []
   let ocrTokens: OCRToken[] = []
   let usedTiled = false
-  if (!relevant) {
+  let warmOCR = false
+  if (!relevant && !keyOnly) {
+    if (!observed.rawPng) return fallback("raw_frame_unavailable")
     const ready = "isReady" in parser && typeof parser.isReady === "function" ? parser.isReady() : true
     if (!ready) {
       void parser.health().catch(() => undefined)
@@ -168,9 +190,18 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
   let decision: JevDecision = await select({ intent: input.intent, window: frame.foregroundWindow.title, candidates, apiKey: input.apiKey, signal })
   if (decision.status === "needs_vision" && ["abstained", "low_confidence", "no_candidates"].includes(decision.reason) &&
     visualFrame) {
-    const ocrProvider = deps.ocr ?? ((await localOCR.health()).ready
-      ? (value: VisualFrame, nextSignal?: AbortSignal, region?: Rect) => localOCR.parse(value, nextSignal, region)
+    // OCR is an expensive fallback. Starting EasyOCR can take several seconds;
+    // let this call return promptly while it warms, and run it on the already
+    // downscaled observation once ready. Detector boxes remain in raw pixels.
+    const ocrProvider = deps.ocr ?? (localOCR.isReady()
+      ? async (_value: VisualFrame, nextSignal?: AbortSignal) => {
+          const display = { id: frame.id, png: observed.png,
+            width: frame.displayImageSize.width, height: frame.displayImageSize.height }
+          const tokens = await localOCR.parse(display, nextSignal, regionFromIntent(display, input.intent))
+          return scaleOCRTokensToRaw(tokens, display, frame.rawImageSize)
+        }
       : undefined)
+    if (!deps.ocr && !ocrProvider) warmOCR = true
     try { ocrTokens = ocrProvider ? await ocrProvider(visualFrame, signal, regionFromIntent(visualFrame, input.intent)) : [] }
     catch { ocrTokens = [] }
     if (ocrTokens.length > 0) {
@@ -194,18 +225,25 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
       decision = await select({ intent: input.intent, window: frame.foregroundWindow.title, candidates, apiKey: input.apiKey, signal })
     } catch { return fallback("vision_unavailable") }
   }
-  if (decision.status !== "selected") return fallback(decision.reason)
+  if (decision.status !== "selected") {
+    // Do not compete with tiled detection for CPU on this action.
+    if (warmOCR) void localOCR.health().catch(() => undefined)
+    return fallback(decision.reason)
+  }
   const selected = candidates.items.find((item) => item.id === decision.candidate.id && item.frameID === frame.id)
   if (!selected) return fallback("invalid_candidate")
   // Jev sees JSON rather than pixels. A nameless icon cannot be matched to a semantic intent from coordinates alone.
-  if (!selected.label && !hasExplicitPosition(input.intent)) return fallback("unlabeled_target")
+  if (selected.action !== "key" && !selected.label && !hasExplicitPosition(input.intent)) return fallback("unlabeled_target")
   const action = candidateToNative(selected, frame)
   const nativeTargetGuard = source === "uia" && selected.sources?.includes("uia") &&
     action.action !== "key" && (action.action !== "batch" || action.steps[0]?.expectTarget)
-  if (!nativeTargetGuard) {
+  if (action.action !== "key" && !nativeTargetGuard) {
+    if (!observed.rawPng) return fallback("raw_frame_unavailable")
     const guard = await native({ action: "observe", includeElements: false, captureRaw: true, resolution: input.resolution }, signal)
     const guardFrame = frameOf(guard.observation)
-    if (!guardFrame || !guard.rawPng || !sameFrameScreen(frame, guardFrame) || !observed.rawPng.equals(guard.rawPng)) {
+    if (!guardFrame || !guard.rawPng || !sameFrameScreen(frame, guardFrame) ||
+      !selected.box || !selected.point ||
+      !await visualTargetUnchanged(observed.rawPng, guard.rawPng, selected.box, selected.point).catch(() => false)) {
       return fallback("stale_frame", guard)
     }
   }

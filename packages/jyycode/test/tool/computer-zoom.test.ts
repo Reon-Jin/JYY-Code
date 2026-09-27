@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Observation } from "@/tool/computer/native"
-import { createZoom, zoomTargetsUnchanged } from "@/tool/computer/zoom"
+import { createZoom, visualTargetUnchanged, zoomTargetsUnchanged } from "@/tool/computer/zoom"
 
 function makeObservation(width: number, height: number): Observation {
   return {
@@ -52,6 +52,26 @@ async function changePixel(png: Buffer, x: number, y: number) {
     const height = source.get_height()
     const pixels = source.get_raw_pixels()
     pixels[(y * width + x) * 4] ^= 255
+    const changed = new photon.PhotonImage(pixels, width, height)
+    try { return Buffer.from(changed.get_bytes()) }
+    finally { changed.free() }
+  } finally { source.free() }
+}
+
+async function changeArea(png: Buffer, rect: { x: number; y: number; width: number; height: number }, strength: number) {
+  const photon = await import("@silvia-odwyer/photon-node")
+  const source = photon.PhotonImage.new_from_byteslice(png)
+  try {
+    const width = source.get_width()
+    const height = source.get_height()
+    const pixels = source.get_raw_pixels()
+    for (let y = rect.y; y < Math.min(height, rect.y + rect.height); y++) {
+      for (let x = rect.x; x < Math.min(width, rect.x + rect.width); x++) {
+        const offset = (y * width + x) * 4
+        for (let channel = 0; channel < 3; channel++) pixels[offset + channel] =
+          Math.min(255, pixels[offset + channel]! + strength)
+      }
+    }
     const changed = new photon.PhotonImage(pixels, width, height)
     try { return Buffer.from(changed.get_bytes()) }
     finally { changed.free() }
@@ -113,5 +133,20 @@ describe("computer zoom", () => {
     expect(await zoomTargetsUnchanged(zoom.png, await changePixel(raw, 999, 699), zoom.observation.view, points)).toBe(false)
     expect(await zoomTargetsUnchanged(zoom.png, raw, zoom.observation.view, [])).toBe(false)
     expect(await zoomTargetsUnchanged(zoom.png, raw, zoom.observation.view, [{ x: 800, y: 599 }])).toBe(false)
+  })
+
+  test("checks a visual target locally while the rest of an animated screen changes", async () => {
+    const reference = await makePng(256, 256)
+    const target = { x: 100, y: 100, width: 80, height: 80 }
+    const point = { x: 140, y: 140 }
+    expect(await visualTargetUnchanged(reference, await changeArea(reference,
+      { x: 0, y: 0, width: 80, height: 80 }, 120), target, point)).toBe(true)
+    expect(await visualTargetUnchanged(reference, await changeArea(reference,
+      { x: 115, y: 115, width: 50, height: 50 }, 8), target, point)).toBe(true)
+    expect(await visualTargetUnchanged(reference, await changeArea(reference,
+      { x: 115, y: 115, width: 50, height: 50 }, 30), target, point)).toBe(true)
+    expect(await visualTargetUnchanged(reference, await changeArea(reference,
+      { x: 115, y: 115, width: 50, height: 50 }, 120), target, point)).toBe(false)
+    expect(await visualTargetUnchanged(reference, reference, target, { x: 99, y: 140 })).toBe(false)
   })
 })

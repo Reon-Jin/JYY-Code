@@ -62,6 +62,7 @@ import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
 import { referencePromptMetadata, referenceTextPart } from "./prompt/reference"
 import { SessionTools } from "./tools"
+import { computerControlRequestedInSession } from "@/tool/computer/request"
 import { SessionState } from "./state"
 import { countRealUserTurns } from "./state"
 import { EpisodicMemory, episodeFromMessages, sliceLastTurns } from "@/memory/episodic"
@@ -1984,6 +1985,7 @@ export const layer = Layer.effect(
               assistantMessage: msg,
               sessionID,
               model,
+              skipWorkspaceSnapshots: computerControlRequestedInSession(msgs, sessionID),
             })
             .pipe(Effect.onInterrupt(() => finalizeInterruptedAssistant))
 

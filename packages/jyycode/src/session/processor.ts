@@ -29,12 +29,9 @@ import * as DateTime from "effect/DateTime"
 import { Usage, type LLMEvent } from "@jyycode-ai/llm"
 import { ToolTelemetry } from "@/tool/telemetry"
 import { UsageLedger } from "./usage-ledger"
-import { enforceComputerScreenshotBudget, pruneComputerScreenshotAttachments } from "./computer-screenshot-retention"
-import { collectReleasedComputerScreenshots } from "./computer-screenshot-gc"
+import { scheduleComputerScreenshotMaintenance } from "./computer-screenshot-maintenance"
 
 const DOOM_LOOP_THRESHOLD = 3
-const COMPUTER_SCREENSHOT_BUDGET_CHECK_EVERY = 16
-let computerScreenshotResults = 0
 const log = Log.create({ service: "session.processor" })
 
 export type Result = "compact" | "stop" | "continue"
@@ -66,6 +63,8 @@ type Input = {
   assistantMessage: MessageV2.Assistant
   sessionID: SessionID
   model: Provider.Model
+  /** Desktop control changes external application state, not workspace files. */
+  skipWorkspaceSnapshots?: boolean
 }
 
 export interface Interface {
@@ -117,7 +116,7 @@ export const layer = Layer.effect(
       // Pre-capture snapshot before the LLM stream starts. The AI SDK
       // may execute tools internally before emitting start-step events,
       // so capturing inside the event handler can be too late.
-      const initialSnapshot = yield* snapshot.track()
+      const initialSnapshot = input.skipWorkspaceSnapshots ? undefined : yield* snapshot.track()
       const ctx: ProcessorContext = {
         assistantMessage: input.assistantMessage,
         sessionID: input.sessionID,
@@ -520,35 +519,11 @@ export const layer = Layer.effect(
               timestamp: DateTime.makeUnsafe(Date.now()),
             })
             if (completed?.tool === "computer") {
-              // Model prompts already use only the latest observations. Release
-              // older screenshot references after publishing this result, then
-              // collect the retired files in batches to avoid per-click GC.
-              const retention = yield* pruneComputerScreenshotAttachments({ sessionID: ctx.sessionID }).pipe(
+              // Release old screenshots in a bounded background pass. Tool
+              // results must not wait for database scans or file deletion.
+              yield* scheduleComputerScreenshotMaintenance({ sessionID: ctx.sessionID }).pipe(
                 Effect.provideService(Session.Service, session),
-                Effect.catchCause((cause) => {
-                  slog.warn("computer screenshot retention failed", { error: Cause.pretty(cause) })
-                  return Effect.succeed(undefined)
-                }),
               )
-              const released = retention?.released ?? []
-              computerScreenshotResults++
-              // Check the cross-session quota occasionally. When over budget,
-              // each pass removes up to 32 old results, faster than new ones
-              // arrive even if every action starts a different session.
-              if (computerScreenshotResults === 1 || computerScreenshotResults % COMPUTER_SCREENSHOT_BUDGET_CHECK_EVERY === 0) {
-                const budget = yield* enforceComputerScreenshotBudget({
-                  activeSessionID: ctx.sessionID,
-                  batchSize: 32,
-                }).pipe(
-                  Effect.provideService(Session.Service, session),
-                  Effect.catchCause((cause) => {
-                    slog.warn("computer screenshot budget cleanup failed", { error: Cause.pretty(cause) })
-                    return Effect.succeed(undefined)
-                  }),
-                )
-                if (budget) released.push(...budget.released)
-              }
-              yield* collectReleasedComputerScreenshots(released)
             }
             if (value.providerExecuted === true || toolCall?.part.metadata?.providerExecuted === true) {
               yield* ToolTelemetry.executionCompleted(bus, {
@@ -603,7 +578,7 @@ export const layer = Layer.effect(
             throw new Error(value.message)
 
           case "step-start":
-            if (!ctx.snapshot) ctx.snapshot = yield* snapshot.track()
+            if (!input.skipWorkspaceSnapshots && !ctx.snapshot) ctx.snapshot = yield* snapshot.track()
             if (!ctx.assistantMessage.summary) {
               yield* events.publish(SessionEvent.Step.Started, {
                 sessionID: ctx.sessionID,
@@ -627,7 +602,7 @@ export const layer = Layer.effect(
             return
 
           case "step-finish": {
-            const completedSnapshot = yield* snapshot.track()
+            const completedSnapshot = input.skipWorkspaceSnapshots ? undefined : yield* snapshot.track()
             yield* Effect.forEach(Object.keys(ctx.reasoningMap), finishReasoning)
             const usage = Session.getUsage({
               model: ctx.model,

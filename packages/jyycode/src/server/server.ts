@@ -14,6 +14,11 @@ import { PublicApi } from "./routes/instance/httpapi/public"
 import type { CorsOptions } from "./cors"
 import { lazy } from "@/util/lazy"
 import { acquireBlobGCScheduler } from "@/storage/blob-gc"
+import {
+  flushComputerScreenshotMaintenance,
+  scheduleStartupComputerScreenshotMaintenance,
+} from "@/session/computer-screenshot-maintenance"
+import { startLegacySessionMessageScreenshotCleanup } from "@/session/session-message-screenshot-retention"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -73,18 +78,66 @@ export async function openapi() {
 
 export let url: URL
 
+const SCREENSHOT_STARTUP_SWEEP_DELAY_MS = 2 * 60_000
+const SCREENSHOT_SHUTDOWN_FLUSH_TIMEOUT_MS = 2_000
+
+async function flushScreenshotsBeforeStop() {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  const result = await Promise.race([
+    flushComputerScreenshotMaintenance().then(() => "completed" as const),
+    new Promise<"timed-out">((resolve) => {
+      timeout = setTimeout(() => resolve("timed-out"), SCREENSHOT_SHUTDOWN_FLUSH_TIMEOUT_MS)
+    }),
+  ]).catch((error) => {
+    log.warn("screenshot maintenance skipped during shutdown", {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return "failed" as const
+  })
+  if (timeout) clearTimeout(timeout)
+  if (result === "timed-out") log.warn("screenshot maintenance exceeded shutdown time budget")
+}
+
 export async function listen(opts: ListenOptions): Promise<Listener> {
   const listener = await Effect.runPromise(listenEffect(opts))
   // Schedule storage maintenance after the server is ready so startup remains
   // responsive. The timer is shared across listeners and stopped with them.
   const stopBlobGC = acquireBlobGCScheduler((error) =>
     log.warn("blob GC skipped", { error: error instanceof Error ? error.message : String(error) }))
+  // A previous process may have exited before its short in-memory queue ran.
+  // Revisit those references only after startup has settled.
+  let stopping = false
+  let stopLegacyScreenshotCleanup: (() => void) | undefined
+  const screenshotStartupTimer = setTimeout(() => {
+    if (stopping) return
+    void import("@/effect/app-runtime")
+      .then(async ({ AppRuntime }) => {
+        if (stopping) return
+        await AppRuntime.runPromise(scheduleStartupComputerScreenshotMaintenance())
+        if (stopping) return
+        const stop = await AppRuntime.runPromise(startLegacySessionMessageScreenshotCleanup({
+          onError: (error) => log.warn("legacy screenshot cleanup deferred", {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        }))
+        if (stopping) stop()
+        else stopLegacyScreenshotCleanup = stop
+      })
+      .catch((error) => log.warn("startup screenshot maintenance skipped", {
+        error: error instanceof Error ? error.message : String(error),
+      }))
+  }, SCREENSHOT_STARTUP_SWEEP_DELAY_MS)
+  screenshotStartupTimer.unref?.()
   return {
     hostname: listener.hostname,
     port: listener.port,
     url: listener.url,
     stop: async (close?: boolean) => {
+      stopping = true
+      clearTimeout(screenshotStartupTimer)
+      stopLegacyScreenshotCleanup?.()
       await stopBlobGC()
+      await flushScreenshotsBeforeStop()
       await Effect.runPromiseExit(listener.stop(close))
     },
   }

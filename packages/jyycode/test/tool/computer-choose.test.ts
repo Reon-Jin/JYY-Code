@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { selectJev } from "@/tool/computer/jev"
-import { candidateToNative, runChoose } from "@/tool/computer/choose"
+import { candidateToNative, runChoose, scaleOCRTokensToRaw } from "@/tool/computer/choose"
 import { createFrame } from "@/tool/computer/frame"
 import type { Action, Observation } from "@/tool/computer/native"
 import type { CandidateSet } from "@/tool/computer/candidate"
@@ -52,6 +52,13 @@ describe("Jev closed desktop decision", () => {
 })
 
 describe("grounded desktop action execution", () => {
+  test("maps OCR boxes from the displayed screenshot back to raw click pixels", () => {
+    const tokens = scaleOCRTokensToRaw([
+      { text: "继续", box: { x: 930, y: 40, width: 60, height: 30 }, confidence: 0.9 },
+    ], { width: 1280, height: 800 }, { width: 2560, height: 1600 })
+    expect(tokens[0]?.box).toEqual({ x: 1860, y: 80, width: 120, height: 60 })
+  })
+
   const observation = (id: string): Observation => ({
     screen: { x: -1920, y: 0, width: 1920, height: 1080 },
     image: { width: 1280, height: 720 }, rawImage: { width: 1920, height: 1080 },
@@ -140,10 +147,11 @@ describe("grounded desktop action execution", () => {
 
   test("keeps OCR off the fast detector path and crops it only after abstaining", async () => {
     const actions: Action[] = []
+    const raw = Buffer.from(await Bun.file(new URL("./fixtures/computer-synthetic-192.png", import.meta.url)).arrayBuffer())
     const native = (async (action: Action) => {
       actions.push(action)
       return { observation: { ...observation(`f${actions.length}`), elements: [] },
-        png: Buffer.from([actions.length]), rawPng: Buffer.from([1, 2, 3]) }
+        png: Buffer.from([actions.length]), rawPng: raw }
     }) as typeof import("@/tool/computer/native").runNative
     let ocrCalls = 0
     let choices = 0
@@ -170,6 +178,28 @@ describe("grounded desktop action execution", () => {
     expect(ocrCalls).toBe(1)
     expect(choices).toBe(2)
     expect(actions.map((action) => action.action)).toEqual(["observe", "observe", "click"])
+  })
+
+  test("keyboard-only choose skips model startup and a redundant screenshot guard", async () => {
+    const actions: Action[] = []
+    let modelStarts = 0
+    const native = (async (action: Action) => {
+      actions.push(action)
+      return { observation: observation(`f${actions.length}`), png: Buffer.from([actions.length]), rawPng: Buffer.from([1]) }
+    }) as typeof import("@/tool/computer/native").runNative
+    const parser = {
+      isReady: () => false,
+      health: async () => { modelStarts++; return { ready: true } },
+      parse: async () => { throw new Error("keyboard action should not run the detector") },
+      close: async () => undefined,
+    }
+    const result = await runChoose({ intent: "按回车", keys: "Enter", allowedActions: ["key"] }, undefined,
+      { native, parser, select: selected })
+    expect(result.status).toBe("executed")
+    expect(modelStarts).toBe(0)
+    expect(actions.map((action) => action.action)).toEqual(["observe", "key"])
+    expect(actions[0]).toMatchObject({ includeElements: false, captureRaw: false })
+    expect(actions[1]).toMatchObject({ keys: "Enter", expectWindow: "42" })
   })
 
   test("starts the detector only after choose needs visual candidates", async () => {

@@ -9,6 +9,11 @@ import { Session } from "../../src/session/session"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { enforceComputerScreenshotBudget, pruneComputerScreenshotAttachments } from "../../src/session/computer-screenshot-retention"
+import {
+  flushComputerScreenshotMaintenance,
+  scheduleComputerScreenshotMaintenance,
+  scheduleStartupComputerScreenshotMaintenance,
+} from "../../src/session/computer-screenshot-maintenance"
 
 const sessionID = SessionID.make("ses_screenshot_retention")
 
@@ -188,4 +193,97 @@ test("global screenshot budget prunes old sessions while preserving the active t
     if (value.state.status === "completed") expect(value.state.attachments?.[0]?.mime).toBe("image/png")
   }
   expect(result.refs.some((ref) => ref.part_id === "prt_upload" && ref.digest === "0".repeat(64))).toBe(true)
+})
+
+test("screenshot maintenance returns before touching storage and cleans up when flushed", async () => {
+  const result = await Effect.runPromise(Effect.gen(function* () {
+    const { db } = yield* TestDatabase.Service
+    yield* db.run(sql`CREATE TABLE part (
+      id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL,
+      time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL
+    )`)
+    yield* db.run(sql`CREATE TABLE blob_ref (
+      part_id TEXT NOT NULL, slot TEXT NOT NULL, digest TEXT NOT NULL, created_at INTEGER NOT NULL
+    )`)
+    yield* db.run(sql`CREATE TABLE blob (
+      digest TEXT PRIMARY KEY, size INTEGER NOT NULL, mime TEXT NOT NULL,
+      created_at INTEGER NOT NULL, verified_at INTEGER NOT NULL, last_ref_removed_at INTEGER
+    )`)
+    for (const index of [0, 1, 2, 3]) {
+      const item = part(index)
+      const { id, messageID, sessionID, ...data } = item
+      const attachment = item.state.attachments[0]!
+      const digest = attachment.url.slice("blob:sha256:".length)
+      yield* db.run(sql`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+        VALUES (${id}, ${messageID}, ${sessionID}, ${index}, ${index}, ${JSON.stringify(data)})`)
+      yield* db.run(sql`INSERT INTO blob (digest, size, mime, created_at, verified_at)
+        VALUES (${digest}, 100, 'image/png', 0, 0)`)
+      yield* db.run(sql`INSERT INTO blob_ref (part_id, slot, digest, created_at)
+        VALUES (${id}, 'tool:0', ${digest}, 0)`)
+    }
+
+    yield* scheduleComputerScreenshotMaintenance({ sessionID })
+    const before = yield* Database.query((client) => client.select().from(BlobRefTable).all())
+    yield* Effect.promise(() => flushComputerScreenshotMaintenance())
+    const after = yield* Database.query((client) => client.select().from(BlobRefTable).all())
+    return {
+      before: before.filter((ref) => ref.digest !== "f".repeat(64)).length,
+      after: after.filter((ref) => ref.digest !== "f".repeat(64)).length,
+    }
+  }).pipe(
+    Effect.provideService(Session.Service, fakeSession),
+    Effect.provide(TestDatabase.layerFromPath(":memory:", TestDatabase.noMigrations)),
+    Effect.scoped,
+  ))
+
+  expect(result).toEqual({ before: 4, after: 3 })
+})
+
+test("startup maintenance revisits sessions left untrimmed by a prior exit", async () => {
+  const otherSessionID = SessionID.make("ses_other_startup_screenshots")
+  const result = await Effect.runPromise(Effect.gen(function* () {
+    const { db } = yield* TestDatabase.Service
+    yield* db.run(sql`CREATE TABLE part (
+      id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL,
+      time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL
+    )`)
+    yield* db.run(sql`CREATE TABLE blob_ref (
+      part_id TEXT NOT NULL, slot TEXT NOT NULL, digest TEXT NOT NULL, created_at INTEGER NOT NULL
+    )`)
+    yield* db.run(sql`CREATE TABLE blob (
+      digest TEXT PRIMARY KEY, size INTEGER NOT NULL, mime TEXT NOT NULL,
+      created_at INTEGER NOT NULL, verified_at INTEGER NOT NULL, last_ref_removed_at INTEGER
+    )`)
+    for (const index of [0, 1, 2, 3, 4]) {
+      const owner = index === 4 ? otherSessionID : sessionID
+      const value = part(index)
+      const item = {
+        ...value,
+        sessionID: owner,
+        state: {
+          ...value.state,
+          attachments: value.state.attachments.map((attachment) => ({ ...attachment, sessionID: owner })),
+        },
+      }
+      const { id, messageID, sessionID: session, ...data } = item
+      const attachment = item.state.attachments[0]!
+      const digest = attachment.url.slice("blob:sha256:".length)
+      yield* db.run(sql`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+        VALUES (${id}, ${messageID}, ${session}, ${index}, ${index}, ${JSON.stringify(data)})`)
+      yield* db.run(sql`INSERT INTO blob (digest, size, mime, created_at, verified_at)
+        VALUES (${digest}, 100, 'image/png', 0, 0)`)
+      yield* db.run(sql`INSERT INTO blob_ref (part_id, slot, digest, created_at)
+        VALUES (${id}, 'tool:0', ${digest}, 0)`)
+    }
+    const startup = yield* scheduleStartupComputerScreenshotMaintenance()
+    yield* Effect.promise(() => flushComputerScreenshotMaintenance())
+    const refs = yield* Database.query((client) => client.select().from(BlobRefTable).all())
+    return { startup, imageRefs: refs.filter((ref) => ref.digest !== "f".repeat(64)).length }
+  }).pipe(
+    Effect.provideService(Session.Service, fakeSession),
+    Effect.provide(TestDatabase.layerFromPath(":memory:", TestDatabase.noMigrations)),
+    Effect.scoped,
+  ))
+
+  expect(result).toEqual({ startup: { sessions: 2, queued: 1 }, imageRefs: 4 })
 })

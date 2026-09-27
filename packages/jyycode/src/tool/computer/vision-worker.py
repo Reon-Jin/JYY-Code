@@ -10,6 +10,19 @@ import sys
 import time
 from pathlib import Path
 
+# Model imports and first inference can saturate a CPU briefly. Keep desktop
+# input and rendering responsive while this optional helper warms up.
+if sys.platform == "win32":
+    try:
+        import ctypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel.SetPriorityClass.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+        kernel.SetPriorityClass.restype = ctypes.c_int
+        kernel.SetPriorityClass(kernel.GetCurrentProcess(), 0x4000)
+    except Exception:
+        pass
+
 os.environ["OMP_NUM_THREADS"] = "2"
 os.environ["MKL_NUM_THREADS"] = "2"
 os.environ["OPENBLAS_NUM_THREADS"] = "2"

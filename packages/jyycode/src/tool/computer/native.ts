@@ -34,6 +34,8 @@ export type Action = (Step | { action: "observe" } | { action: "batch"; steps: S
   annotate?: boolean
   resolution?: "standard" | "high"
   captureRaw?: boolean
+  /** Internal time budget for a best-effort accessibility scan. */
+  uiScanBudgetMs?: number
   frameID?: string
 }
 
@@ -72,6 +74,10 @@ function isInteger(value: unknown): value is number {
 export function validateAction(input: Action) {
   if (input.captureRaw !== undefined && typeof input.captureRaw !== "boolean") {
     throw new Error("captureRaw must be a boolean")
+  }
+  if (input.uiScanBudgetMs !== undefined && (!isInteger(input.uiScanBudgetMs) ||
+    input.uiScanBudgetMs < 100 || input.uiScanBudgetMs > 2500)) {
+    throw new Error("uiScanBudgetMs must be 100 to 2500 milliseconds")
   }
   if (input.includeElements !== undefined && typeof input.includeElements !== "boolean") {
     throw new Error("includeElements must be a boolean")
@@ -225,7 +231,10 @@ export function shouldIncludeElements(input: Action) {
   const targeted = input.action === "batch"
     ? input.steps.some((step) => step.action === "click" && step.element !== undefined)
     : input.action === "click" && input.element !== undefined
-  return input.annotate === true || (input.includeElements ?? (input.action === "observe" || targeted))
+  // Accessibility tree walking can take seconds in browsers and games. A plain
+  // observation only needs the screenshot; callers opt in when they need a
+  // numbered element map or ask for one by clicking an element.
+  return input.annotate === true || (input.includeElements ?? targeted)
 }
 
 export async function runNative(input: Action, signal?: AbortSignal): Promise<{ observation: Observation; png: Buffer; rawPng?: Buffer }> {

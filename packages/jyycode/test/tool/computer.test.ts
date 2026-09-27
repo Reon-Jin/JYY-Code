@@ -222,7 +222,8 @@ describe("computer control boundary", () => {
   })
 
   test("refreshes element maps after semantic clicks while keeping ordinary actions fast", () => {
-    expect(shouldIncludeElements({ action: "observe" })).toBe(true)
+    expect(shouldIncludeElements({ action: "observe" })).toBe(false)
+    expect(shouldIncludeElements({ action: "observe", includeElements: true })).toBe(true)
     expect(shouldIncludeElements({ action: "click", element: 7 })).toBe(true)
     expect(shouldIncludeElements({ action: "batch", steps: [{ action: "click", element: 7 }] })).toBe(true)
     expect(shouldIncludeElements({ action: "drag", points: [{ x: 1, y: 1 }, { x: 2, y: 2 }] })).toBe(false)

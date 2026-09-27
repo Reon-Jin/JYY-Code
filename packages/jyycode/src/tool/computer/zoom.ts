@@ -90,4 +90,60 @@ export async function zoomTargetsUnchanged(referencePng: Buffer, rawPng: Buffer,
   }
 }
 
+/** Check the intended control rather than the whole animated desktop. */
+export async function visualTargetUnchanged(referencePng: Buffer, currentPng: Buffer, box: Rect, point: Point) {
+  const photon = await loadPhoton()
+  const reference = photon.PhotonImage.new_from_byteslice(referencePng)
+  const current = photon.PhotonImage.new_from_byteslice(currentPng)
+  try {
+    const width = reference.get_width()
+    const height = reference.get_height()
+    if (current.get_width() !== width || current.get_height() !== height ||
+      ![box.x, box.y, box.width, box.height, point.x, point.y].every(Number.isSafeInteger) ||
+      box.width < 2 || box.height < 2 || box.x < 0 || box.y < 0 ||
+      box.x + box.width > width || box.y + box.height > height ||
+      point.x < box.x || point.y < box.y || point.x >= box.x + box.width || point.y >= box.y + box.height) return false
+    const radius = Math.max(8, Math.min(24, Math.floor(Math.min(box.width, box.height) / 4)))
+    const left = Math.max(box.x, point.x - radius)
+    const top = Math.max(box.y, point.y - radius)
+    const right = Math.min(box.x + box.width, point.x + radius + 1)
+    const bottom = Math.min(box.y + box.height, point.y + radius + 1)
+    const before = reference.get_raw_pixels()
+    const after = current.get_raw_pixels()
+    let difference = 0
+    let changed = 0
+    let pixels = 0
+    const signed = [0, 0, 0]
+    for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) {
+      const offset = (y * width + x) * 4
+      let colorDifference = 0
+      for (let channel = 0; channel < 3; channel++) {
+        const delta = after[offset + channel]! - before[offset + channel]!
+        signed[channel]! += delta
+        colorDifference += Math.abs(delta)
+      }
+      difference += colorDifference
+      if (colorDifference > 144) changed++
+      pixels++
+    }
+    // Small lighting and animation changes are normal; a new overlay, moved
+    // target, or scene transition changes most of the target patch.
+    if (pixels === 0 || changed / pixels > 0.25) return false
+    if (difference / (pixels * 3) <= 18) return true
+    const tint = signed.map((value) => value / pixels)
+    if (tint.some((value) => Math.abs(value) > 35)) return false
+    let residual = 0
+    for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) {
+      const offset = (y * width + x) * 4
+      for (let channel = 0; channel < 3; channel++) {
+        residual += Math.abs(after[offset + channel]! - before[offset + channel]! - tint[channel]!)
+      }
+    }
+    return residual / (pixels * 3) <= 8
+  } finally {
+    reference.free()
+    current.free()
+  }
+}
+
 export * as ComputerZoom from "./zoom"

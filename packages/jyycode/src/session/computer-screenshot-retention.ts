@@ -22,11 +22,6 @@ const completedComputer = sql<boolean>`json_extract(${PartTable.data}, '$.type')
   and json_extract(${PartTable.data}, '$.tool') = 'computer'
   and json_extract(${PartTable.data}, '$.state.status') = 'completed'`
 
-const hasScreenshot = sql<boolean>`exists (
-  select 1 from json_each(${PartTable.data}, '$.state.attachments') as attachment
-  where json_extract(attachment.value, '$.mime') like 'image/%'
-)`
-
 const imageBlobReference = sql<boolean>`exists (
   select 1 from json_each(${PartTable.data}, '$.state.attachments') as attachment
   where json_extract(attachment.value, '$.mime') like 'image/%'
@@ -118,15 +113,22 @@ export const pruneComputerScreenshotAttachments = Effect.fn("ComputerScreenshotR
     }[] }
 
     const protectedIDs = new Set(newest.map((item) => item.id))
+    // Most historical tool parts have already had their screenshots released.
+    // Start with the (usually tiny) set of live blob references instead of
+    // parsing every historical part's JSON on every sweep. CROSS JOIN keeps
+    // SQLite from choosing part_session_idx as the outer loop again.
     const candidates = yield* Database.query((db) => db
       .select({ id: PartTable.id, messageID: PartTable.message_id, sessionID: PartTable.session_id })
-      .from(PartTable)
+      .from(BlobRefTable)
+      .crossJoin(PartTable)
       .where(and(
+        eq(PartTable.id, BlobRefTable.part_id),
         eq(PartTable.session_id, input.sessionID),
         completedComputer,
-        hasScreenshot,
+        imageBlobReference,
         notInArray(PartTable.id, [...protectedIDs]),
       ))
+      .groupBy(PartTable.id)
       .orderBy(PartTable.time_created, PartTable.id)
       .limit(batchSize + 1)
       .all())

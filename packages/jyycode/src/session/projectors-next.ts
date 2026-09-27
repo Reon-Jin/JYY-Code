@@ -1,4 +1,5 @@
-import { and, desc, eq } from "@/storage/db"
+import { and, desc, eq, gt, sql } from "@/storage/db"
+import { Database as StorageDatabase } from "@/storage/db"
 import type { Database } from "@/storage/db"
 import { SessionMessage } from "@jyycode-ai/core/session-message"
 import { SessionMessageUpdater } from "@jyycode-ai/core/session-message-updater"
@@ -17,6 +18,45 @@ const toSyncDefinition = EventRuntime.toSyncDefinition
 const decodeMessage = Schema.decodeUnknownSync(SessionMessage.Message)
 type SessionMessageData = NonNullable<(typeof SessionMessageTable.$inferInsert)["data"]>
 
+// A completed historical assistant can hold megabytes of inline screenshots.
+// Record the historical unfinished IDs once per session, then only inspect
+// newer rows. This avoids reparsing every completed screenshot on each step.
+const assistantBaseline = new Map<string, {
+  cutoff?: typeof SessionMessageTable.$inferSelect.id
+  openIDs: Array<typeof SessionMessageTable.$inferSelect.id>
+}>()
+const ASSISTANT_BASELINE_LIMIT = 512
+
+function baselineKey(sessionID: SessionID) {
+  return `${StorageDatabase.getPath()}\0${sessionID}`
+}
+
+function rememberBaseline(key: string, baseline: NonNullable<ReturnType<typeof assistantBaseline.get>>) {
+  assistantBaseline.delete(key)
+  assistantBaseline.set(key, baseline)
+  if (assistantBaseline.size > ASSISTANT_BASELINE_LIMIT) assistantBaseline.delete(assistantBaseline.keys().next().value!)
+  return baseline
+}
+
+function openAssistantIDs(db: Database.TxOrDb, sessionID: SessionID, after?: typeof SessionMessageTable.$inferSelect.id) {
+  return db
+    .select({ id: SessionMessageTable.id })
+    .from(SessionMessageTable)
+    .where(and(
+      eq(SessionMessageTable.session_id, sessionID),
+      eq(SessionMessageTable.type, "assistant"),
+      after ? gt(SessionMessageTable.id, after) : undefined,
+      sql`json_extract(${SessionMessageTable.data}, '$.time.completed') is null`,
+    ))
+    .orderBy(desc(SessionMessageTable.id))
+    .all()
+    .map((row) => row.id)
+}
+
+function invalidateAssistantBaseline(sessionID: SessionID) {
+  assistantBaseline.delete(baselineKey(sessionID))
+}
+
 function encodeDateTimes(value: unknown): unknown {
   if (DateTime.isDateTime(value)) return DateTime.toEpochMillis(value)
   if (Array.isArray(value)) return value.map(encodeDateTimes)
@@ -30,17 +70,42 @@ function encodeMessageData(value: unknown): SessionMessageData {
   return encodeDateTimes(value) as SessionMessageData
 }
 
-function sqlite(db: Database.TxOrDb, sessionID: SessionID): SessionMessageUpdater.Adapter<void> {
+export function createSessionMessageSqliteAdapter(
+  db: Database.TxOrDb,
+  sessionID: SessionID,
+): SessionMessageUpdater.Adapter<void> {
   return {
     getCurrentAssistant() {
-      return db
-        .select()
+      const key = baselineKey(sessionID)
+      const latest = db
+        .select({ id: SessionMessageTable.id })
         .from(SessionMessageTable)
         .where(and(eq(SessionMessageTable.session_id, sessionID), eq(SessionMessageTable.type, "assistant")))
         .orderBy(desc(SessionMessageTable.id))
-        .all()
-        .map((row) => decodeMessage({ ...row.data, id: row.id, type: row.type }))
-        .find((message): message is SessionMessage.Assistant => message.type === "assistant" && !message.time.completed)
+        .limit(1)
+        .get()
+      let baseline = assistantBaseline.get(key)
+      if (!baseline || (baseline.cutoff && (!latest || latest.id < baseline.cutoff))) {
+        baseline = rememberBaseline(key, { cutoff: latest?.id, openIDs: openAssistantIDs(db, sessionID) })
+      }
+      const newer = openAssistantIDs(db, sessionID, baseline.cutoff)
+      for (const id of [...newer, ...baseline.openIDs]) {
+        if (baseline.openIDs.includes(id)) {
+          // A historical candidate may have since completed. Check its JSON
+          // time field without materializing its large screenshot payload.
+          const open = db.select({ id: SessionMessageTable.id }).from(SessionMessageTable)
+            .where(and(
+              eq(SessionMessageTable.id, id),
+              sql`json_extract(${SessionMessageTable.data}, '$.time.completed') is null`,
+            )).get()
+          if (!open) continue
+        }
+        const row = db.select().from(SessionMessageTable).where(eq(SessionMessageTable.id, id)).get()
+        if (!row) continue
+        const message = decodeMessage({ ...row.data, id: row.id, type: row.type })
+        if (message.type === "assistant" && !message.time.completed) return message
+      }
+      return undefined
     },
     getCurrentCompaction() {
       return db
@@ -74,6 +139,9 @@ function sqlite(db: Database.TxOrDb, sessionID: SessionID): SessionMessageUpdate
           ),
         )
         .run()
+      const baseline = assistantBaseline.get(baselineKey(sessionID))
+      if (baseline?.cutoff && assistant.id <= baseline.cutoff && !assistant.time.completed &&
+        !baseline.openIDs.includes(assistant.id)) invalidateAssistantBaseline(sessionID)
     },
     updateCompaction(compaction) {
       const { id, type, ...data } = compaction
@@ -115,13 +183,17 @@ function sqlite(db: Database.TxOrDb, sessionID: SessionID): SessionMessageUpdate
         ])
         .onConflictDoNothing({ target: SessionMessageTable.id })
         .run()
+      if (message.type === "assistant") {
+        const baseline = assistantBaseline.get(baselineKey(sessionID))
+        if (baseline?.cutoff && message.id <= baseline.cutoff) invalidateAssistantBaseline(sessionID)
+      }
     },
     finish() {},
   }
 }
 
 function update(db: Database.TxOrDb, event: SessionEvent.Event) {
-  SessionMessageUpdater.update(sqlite(db, event.data.sessionID), event)
+  SessionMessageUpdater.update(createSessionMessageSqliteAdapter(db, event.data.sessionID), event)
 }
 
 export default [
