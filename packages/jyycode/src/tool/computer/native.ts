@@ -7,7 +7,7 @@ import { Effect } from "effect"
 import { AppProcess } from "@jyycode-ai/core/process"
 import { runWindows } from "./windows-worker"
 import { createComputerQueue } from "./queue"
-import { imagePointToDesktop, type Monitor } from "./frame"
+import { imagePointToDesktop, tilePointToImage, type Monitor, type Rect } from "./frame"
 
 export type Step = {
   action: "move" | "click" | "scroll" | "key" | "type" | "drag" | "wait"
@@ -34,16 +34,19 @@ export type Action = (Step | { action: "observe" } | { action: "batch"; steps: S
   annotate?: boolean
   resolution?: "standard" | "high"
   captureRaw?: boolean
+  frameID?: string
 }
 
 export type Observation = {
   screen: { x: number; y: number; width: number; height: number }
   image: { width: number; height: number }
   rawImage?: { width: number; height: number }
+  view?: Rect
   monitors?: Monitor[]
   frameID?: string
   capturedAt?: number
   cursor: { x: number; y: number }
+  inputCursor?: { x: number; y: number }
   window: string
   windowID?: string
   elements: Array<{
@@ -55,6 +58,7 @@ export type Observation = {
     y: number
     width: number
     height: number
+    clickPoint?: { x: number; y: number }
     enabled: boolean
     focused: boolean
     depth: number
@@ -152,16 +156,22 @@ export function validateAction(input: Action) {
 
 /** Model coordinates are pixels in the last screenshot, not physical desktop pixels. */
 export function toDesktopAction(input: Action, frame: Observation): Action {
+  if (input.frameID !== undefined && input.frameID !== frame.frameID) {
+    throw new Error("Screenshot frame changed; observe again before using coordinates")
+  }
+  const geometry = {
+    id: frame.frameID ?? "legacy",
+    capturedAt: frame.capturedAt ?? 0,
+    screen: frame.screen,
+    rawImageSize: frame.rawImage ?? frame.image,
+    displayImageSize: frame.image,
+    monitors: frame.monitors ?? [],
+    foregroundWindow: { id: frame.windowID ?? "unknown", title: frame.window },
+  }
   const point = (x: number, y: number) => {
-    return imagePointToDesktop({
-      id: frame.frameID ?? "legacy",
-      capturedAt: frame.capturedAt ?? 0,
-      screen: frame.screen,
-      rawImageSize: frame.rawImage ?? frame.image,
-      displayImageSize: frame.image,
-      monitors: frame.monitors ?? [],
-      foregroundWindow: { id: frame.windowID ?? "unknown", title: frame.window },
-    }, { x, y }, "display")
+    if (!frame.view) return imagePointToDesktop(geometry, { x, y }, "display")
+    const raw = tilePointToImage(geometry, { ...frame.view, imageWidth: frame.image.width, imageHeight: frame.image.height }, { x, y })
+    return imagePointToDesktop(geometry, raw, "raw")
   }
   if (input.action === "batch") return { ...input, steps: input.steps.map((step) => toDesktopAction(step, frame) as Step) }
   if (input.action === "observe" || input.action === "wait") return input
@@ -179,10 +189,16 @@ export function toDesktopAction(input: Action, frame: Observation): Action {
     if (!target) throw new Error(`Element #${input.element} is not in the latest observation; observe again`)
     if (!target.enabled) throw new Error(`Element #${input.element} is disabled`)
     const { element, ...rest } = input
+    const clickPoint = target.clickPoint
+    const clickable = clickPoint && Number.isSafeInteger(clickPoint.x) && Number.isSafeInteger(clickPoint.y) &&
+      clickPoint.x >= target.x && clickPoint.x < target.x + target.width &&
+      clickPoint.y >= target.y && clickPoint.y < target.y + target.height &&
+      clickPoint.x >= frame.screen.x && clickPoint.x < frame.screen.x + frame.screen.width &&
+      clickPoint.y >= frame.screen.y && clickPoint.y < frame.screen.y + frame.screen.height
     return {
       ...rest,
-      x: Math.round(target.x + target.width / 2),
-      y: Math.round(target.y + target.height / 2),
+      x: clickable ? clickPoint.x : Math.round(target.x + target.width / 2),
+      y: clickable ? clickPoint.y : Math.round(target.y + target.height / 2),
       expectWindow: frame.windowID,
       expectTarget: {
         name: target.name,
@@ -290,22 +306,39 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
 }
 
 export function formatObservation(observation: Observation, includeElements = true) {
-  const { screen, image, cursor, window, elements } = observation
-  const imageX = (x: number) => Math.round((x - screen.x) * image.width / screen.width)
-  const imageY = (y: number) => Math.round((y - screen.y) * image.height / screen.height)
+  const { screen, image, rawImage, view, cursor, window, elements } = observation
+  const imageX = (x: number) => view
+    ? Math.round(((x - screen.x) * (rawImage?.width ?? image.width) / screen.width - view.x) * image.width / view.width)
+    : Math.round((x - screen.x) * image.width / screen.width)
+  const imageY = (y: number) => view
+    ? Math.round(((y - screen.y) * (rawImage?.height ?? image.height) / screen.height - view.y) * image.height / view.height)
+    : Math.round((y - screen.y) * image.height / screen.height)
+  const cursorX = imageX(cursor.x)
+  const cursorY = imageY(cursor.y)
+  const cursorText = view && (cursorX < 0 || cursorY < 0 || cursorX >= image.width || cursorY >= image.height)
+    ? "outside view" : `(${cursorX}, ${cursorY})`
+  const visibleElements = view ? elements.filter((element) => {
+    const centerX = imageX(element.x + element.width / 2)
+    const centerY = imageY(element.y + element.height / 2)
+    return centerX >= 0 && centerY >= 0 && centerX < image.width && centerY < image.height
+  }) : elements
   const lines = [
     `Foreground window: ${window || "unknown"}`,
-    `Screenshot coordinates: origin (0, 0), size ${image.width}×${image.height}. Cursor: (${imageX(cursor.x)}, ${imageY(cursor.y)}).`,
+    ...(observation.frameID ? [`Screenshot frameID: ${observation.frameID}.`] : []),
+    `Screenshot coordinates: origin (0, 0), size ${image.width}×${image.height}. Cursor: ${cursorText}.`,
+    ...(observation.inputCursor ? [`Cursor immediately after input: (${imageX(observation.inputCursor.x)}, ${imageY(observation.inputCursor.y)}).`] : []),
     "All x/y and toX/toY action coordinates use this screenshot's pixels. The host maps them to the physical desktop.",
     includeElements
-      ? `Visible foreground accessibility elements (${elements.length}; IDs are valid only for this observation):`
+      ? `Visible foreground accessibility elements (${visibleElements.length}; IDs are valid only for this observation):`
       : "Accessibility elements omitted for speed; call observe or set includeElements=true when you need their names and bounds.",
   ]
-  for (const element of includeElements ? elements : []) {
-    const x = imageX(element.x)
-    const y = imageY(element.y)
-    const width = imageX(element.x + element.width) - x
-    const height = imageY(element.y + element.height) - y
+  for (const element of includeElements ? visibleElements : []) {
+    const left = imageX(element.x)
+    const top = imageY(element.y)
+    const x = view ? Math.max(0, left) : left
+    const y = view ? Math.max(0, top) : top
+    const width = (view ? Math.min(image.width, imageX(element.x + element.width)) : imageX(element.x + element.width)) - x
+    const height = (view ? Math.min(image.height, imageY(element.y + element.height)) : imageY(element.y + element.height)) - y
     const centerX = imageX(element.x + element.width / 2)
     const centerY = imageY(element.y + element.height / 2)
     lines.push(

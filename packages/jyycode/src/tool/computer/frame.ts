@@ -97,25 +97,27 @@ export function imagePointToTile(frame: Frame, tile: Tile, point: Point): Point 
 
 /** Keeps only the latest observation for each Desktop session. */
 export class FrameStore {
-  private readonly entries = new Map<string, Observation>()
+  private readonly entries = new Map<string, { observation: Observation; referencePng?: Buffer }>()
 
   constructor(private readonly capacity = 32) {
     if (!Number.isSafeInteger(capacity) || capacity < 1) throw new Error("FrameStore capacity must be positive")
   }
 
   get(sessionID: string) {
-    const frame = this.entries.get(sessionID)
-    if (frame) {
+    const entry = this.entries.get(sessionID)
+    if (entry) {
       this.entries.delete(sessionID)
-      this.entries.set(sessionID, frame)
+      this.entries.set(sessionID, entry)
     }
-    return frame
+    return entry?.observation
   }
 
-  remember(sessionID: string, observation: Observation) {
+  referencePng(sessionID: string) { return this.entries.get(sessionID)?.referencePng }
+
+  remember(sessionID: string, observation: Observation, referencePng?: Buffer) {
     if (!sessionID || !observation.frameID) throw new Error("Cannot remember an unversioned computer frame")
     this.entries.delete(sessionID)
-    this.entries.set(sessionID, observation)
+    this.entries.set(sessionID, { observation, referencePng })
     while (this.entries.size > this.capacity) this.entries.delete(this.entries.keys().next().value!)
   }
 

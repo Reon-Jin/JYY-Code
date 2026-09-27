@@ -23,6 +23,7 @@ public static class JyyComputerNative {
   [DllImport("user32.dll", EntryPoint="SetProcessDpiAwarenessContext", SetLastError=true)] public static extern bool SetProcessDpiAwarenessContext(IntPtr context);
   [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
   [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT point);
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool SetPhysicalCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern IntPtr MonitorFromPoint(POINT point, uint flags);
   [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
@@ -44,11 +45,20 @@ public static class JyyComputerNative {
     if (width < 1 || height < 1 || x < left || x >= left + width || y < top || y >= top + height)
       throw new InvalidOperationException("Mouse coordinate is outside the virtual desktop");
     INPUT input = new INPUT(); input.type = 0;
-    input.mouse.dx = (int)Math.Round((x - left) * 65535.0 / Math.Max(1, width - 1));
-    input.mouse.dy = (int)Math.Round((y - top) * 65535.0 / Math.Max(1, height - 1));
+    // Absolute input uses 0..65535 over the virtual desktop. Aim at each pixel's
+    // center rather than its edge so integer normalization cannot land 1px left/up.
+    input.mouse.dx = (int)Math.Min(65535, Math.Floor(((double)x - left + 0.5) * 65536.0 / width));
+    input.mouse.dy = (int)Math.Min(65535, Math.Floor(((double)y - top + 0.5) * 65536.0 / height));
     input.mouse.flags = 0xE001; // MOVE | MOVE_NOCOALESCE | VIRTUALDESK | ABSOLUTE
     if (SendInput(1, new INPUT[] {input}, Marshal.SizeOf(typeof(INPUT))) != 1)
       throw new InvalidOperationException("SendInput could not move the mouse cursor");
+    POINT actual;
+    if (!GetCursorPos(out actual))
+      throw new InvalidOperationException("Mouse cursor position could not be verified");
+    if (actual.X != x || actual.Y != y) {
+      if (!SetPhysicalCursorPos(x, y) || !GetCursorPos(out actual) || actual.X != x || actual.Y != y)
+        throw new InvalidOperationException("Mouse cursor could not reach the requested desktop coordinate");
+    }
   }
   public static void TypeText(string text) {
     foreach (char ch in text) {
@@ -116,11 +126,19 @@ function Assert-Window($step) {
   }
 }
 
-function Assert-Target($step) {
+function Assert-Target($step, [switch]$AtCursor) {
   if (-not $step.expectTarget) { return }
   $expected = $step.expectTarget
   if ($null -eq $step.x -or $null -eq $step.y) { throw 'Target guard requires a coordinate' }
-  $point = [System.Windows.Point]::new([double]$step.x, [double]$step.y)
+  $x = [double]$step.x
+  $y = [double]$step.y
+  if ($AtCursor) {
+    $actual = New-Object JyyComputerNative+POINT
+    if (-not [JyyComputerNative]::GetCursorPos([ref]$actual)) { throw 'Target at coordinate could not be verified' }
+    $x = [double]$actual.X
+    $y = [double]$actual.Y
+  }
+  $point = [System.Windows.Point]::new($x, $y)
   try { $hit = [System.Windows.Automation.AutomationElement]::FromPoint($point) }
   catch { throw 'Target at coordinate could not be verified' }
   $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
@@ -154,6 +172,7 @@ switch ([string]$step.action) {
     Assert-Window $step
     Assert-Target $step
     if ($null -ne $step.x -and $null -ne $step.y) { MoveTo $step.x $step.y }
+    Assert-Target $step -AtCursor
     $button = [string]$step.button
     if (-not $button) { $button = 'left' }
     $count = if ($step.double) { 2 } else { 1 }
@@ -168,6 +187,7 @@ switch ([string]$step.action) {
     Assert-Window $step
     Assert-Target $step
     if ($null -ne $step.x -and $null -ne $step.y) { MoveTo $step.x $step.y }
+    Assert-Target $step -AtCursor
     $amount = [int]$step.amount * 120
     $flag = if ($step.direction -eq 'left' -or $step.direction -eq 'right') { 0x1000 } else { 0x0800 }
     if ($step.direction -eq 'down' -or $step.direction -eq 'left') { $amount = -$amount }
@@ -246,6 +266,15 @@ if ($inputData.action -eq 'batch') {
         ($step.action -eq 'click' -or $step.action -eq 'key')) { Start-Sleep -Milliseconds 50 }
   }
 } else { Perform-Action $inputData }
+$mouseActions = @('move', 'click', 'scroll', 'drag')
+$hasMouseInput = $mouseActions -contains [string]$inputData.action
+if ($inputData.action -eq 'batch') {
+  $hasMouseInput = @($inputData.steps | Where-Object { $mouseActions -contains [string]$_.action }).Count -gt 0
+}
+$inputPoint = New-Object JyyComputerNative+POINT
+if ($hasMouseInput) {
+  [void][JyyComputerNative]::GetCursorPos([ref]$inputPoint)
+}
 if ($inputData.action -ne 'observe' -and $inputData.action -ne 'wait') { Start-Sleep -Milliseconds 100 }
 
 $screen = [System.Windows.Forms.SystemInformation]::VirtualScreen
@@ -303,12 +332,35 @@ if ($inputData.includeElements) {
         $id = [string]$current.AutomationId
         if ($name.Length -gt 140) { $name = $name.Substring(0, 140) }
         if ($name -or $id -or $role -match 'Button|Edit|MenuItem|TabItem|ListItem|CheckBox|RadioButton|ComboBox') {
-          [void]$elements.Add(@{
+          $record = @{
             index = $elements.Count + 1; name = $name; role = $role.Replace('ControlType.', ''); automationId = $id
             x = [int][Math]::Round($rect.Left); y = [int][Math]::Round($rect.Top)
             width = [int][Math]::Round($rect.Width); height = [int][Math]::Round($rect.Height)
             enabled = [bool]$current.IsEnabled; focused = [bool]$current.HasKeyboardFocus; depth = $depth
-          })
+          }
+          if ($record.enabled -and $role -match 'Button|Edit|MenuItem|TabItem|ListItem|CheckBox|RadioButton|ComboBox|Hyperlink|TreeItem|ScrollBar|Slider' -and
+              $scanClock.ElapsedMilliseconds -lt 2500) {
+            try {
+              $clickable = [System.Windows.Point]::new(0, 0)
+              if ($element.TryGetClickablePoint([ref]$clickable) -and
+                  -not [double]::IsNaN($clickable.X) -and -not [double]::IsNaN($clickable.Y) -and
+                  -not [double]::IsInfinity($clickable.X) -and -not [double]::IsInfinity($clickable.Y) -and
+                  $clickable.X -ge $rect.Left -and $clickable.X -lt $rect.Right -and
+                  $clickable.Y -ge $rect.Top -and $clickable.Y -lt $rect.Bottom -and
+                  $clickable.X -ge $screen.Left -and $clickable.X -lt $screen.Right -and
+                  $clickable.Y -ge $screen.Top -and $clickable.Y -lt $screen.Bottom) {
+                $clickX = [int][Math]::Round($clickable.X)
+                $clickY = [int][Math]::Round($clickable.Y)
+                if ($clickX -ge $record.x -and $clickX -lt $record.x + $record.width -and
+                    $clickY -ge $record.y -and $clickY -lt $record.y + $record.height -and
+                    $clickX -ge $screen.Left -and $clickX -lt $screen.Right -and
+                    $clickY -ge $screen.Top -and $clickY -lt $screen.Bottom) {
+                  $record.clickPoint = @{ x = $clickX; y = $clickY }
+                }
+              }
+            } catch { }
+          }
+          [void]$elements.Add($record)
         }
       }
       if ($depth -lt 24) {
@@ -374,6 +426,7 @@ $monitors = @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object {
   rawImage = @{ width = $width; height = $height }
   monitors = $monitors
   cursor = @{ x = $point.X; y = $point.Y }
+  inputCursor = if ($hasMouseInput) { @{ x = $inputPoint.X; y = $inputPoint.Y } } else { $null }
   window = $windowName
   windowID = $handle.ToInt64().ToString()
   elements = @($elements.ToArray())

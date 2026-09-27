@@ -79,6 +79,14 @@ numbers on the screenshot. Each action returns a new observation. The tool suppo
 click, double click, drag, vertical/horizontal wheel scrolling, key combinations, and literal text entry. Element numbers
 describe only the current observation.
 
+In legacy mode, use `action=zoom` with a point near a small target and the latest `frameID`. It returns an unscaled
+raw-pixel crop of at most 800×600 pixels. The following coordinate action uses the crop's coordinates and must include
+that zoom `frameID`; the host maps the point back through the raw screenshot to the desktop. On Windows, numbered
+accessibility clicks use UI Automation's clickable point when valid and the rectangle center otherwise.
+Before a zoom-based pointer action, the host takes another raw screenshot and compares pixels around the intended
+point. If that region changed, it stops input and returns a fresh observation. The check cannot eliminate changes
+between that screenshot and the OS input.
+
 Windows uses UI Automation, GDI screen capture, and Win32 input. macOS uses Accessibility and Quartz through a bundled
 helper; grant that helper Accessibility and Screen Recording access in System Settings when macOS requests it. The
 coordinates in the tool result are **screenshot pixels**; the host maps them to physical pixels on Windows or Quartz
@@ -92,6 +100,10 @@ input after an uncertain result. Deactivating the key restores the legacy action
 store, and the status API never returns it. `choose` observes a raw-resolution frame,
 grounds a single visible action to a closed set of action-and-coordinate candidates, asks TypeSafe Jev to choose one,
 checks the current window and frame before input, then returns a fresh screenshot.
+If `choose` uses `resolution=high`, the raw frame is larger than 1280 pixels on either axis, and no uniquely named
+accessibility control matches, local vision runs tiled detection before Jev selects a candidate. The standard setting
+keeps the faster whole-screen or relevant-corner first pass and tiles only after an uncertain selection. Tiling takes
+longer, and a unique accessibility match skips visual detection in either mode.
 To include local visual detection, provision the MIT-licensed OmniParser `icon_detect_v3/model.pt` outside the repository.
 The tested revision is found automatically in the standard Hugging Face cache; set `JYYCODE_COMPUTER_VISION_MODEL` to an
 absolute path when the weight lives elsewhere. The Python environment must have PyTorch, torchvision,
@@ -102,8 +114,8 @@ controls but may abstain on graphical controls. The limitations and benchmark re
 [implementation plan](../../docs/plans/2026-09-25-computer-control-visual-jev.md).
 The tested weight revision is `f55d0750e5b94db2125ef0b45b0fa4a85ddc59b4`, SHA-256
 `11c6cbb77f22569fab22d86c76407a83ec81ab89dbfe28279854822d6e3fb00c`. A 16-target public screenshot pilot
-covered 7/16 targets with fast whole-screen detection and 15/16 with slower tiling; it does not establish production
-accuracy or end-to-end latency.
+covered 7/16 targets with fast whole-screen detection and 15/16 with slower tiling. That pilot did not test Jev
+selection or real clicks, so it does not establish click hit rate, production accuracy or end-to-end latency.
 
 ## Home, Skill, and MCP management
 

@@ -21,13 +21,16 @@ describe("computer frame geometry", () => {
       frameID, screen: { x: 0, y: 0, width: 100, height: 100 }, image: { width: 100, height: 100 },
       cursor: { x: 0, y: 0 }, window: "Synthetic", elements: [],
     })
-    store.remember("a", observation("a1"))
+    const reference = Buffer.from("zoom pixels")
+    store.remember("a", observation("a1"), reference)
     store.remember("b", observation("b1"))
     expect(store.get("a")?.frameID).toBe("a1")
+    expect(store.referencePng("a")).toBe(reference)
     store.remember("c", observation("c1"))
     expect(store.get("b")).toBeUndefined()
     store.remember("a", observation("a2"))
     expect(store.get("a")?.frameID).toBe("a2")
+    expect(store.referencePng("a")).toBeUndefined()
   })
   for (const fixture of screens) {
     test(`maps raw pixels to desktop and back on ${fixture.name}`, () => {

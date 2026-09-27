@@ -71,7 +71,7 @@ describe("grounded desktop action execution", () => {
       return { observation: observation(`f${index}`), png: Buffer.from([index]),
         rawPng: action.captureRaw ? Buffer.from([10, 20, 30]) : undefined }
     }) as typeof import("@/tool/computer/native").runNative
-    const result = await runChoose({ intent: "点击保存", allowedActions: ["click"] }, undefined, {
+    const result = await runChoose({ intent: "点击保存", resolution: "high", allowedActions: ["click"] }, undefined, {
       native, select: selected, parser: { health: async () => ({ ready: true }), parse: async () => { throw new Error("detector should not run") }, close: async () => undefined },
     })
     expect(result.status).toBe("executed")
@@ -168,6 +168,39 @@ describe("grounded desktop action execution", () => {
     expect(ocrCalls).toBe(1)
     expect(choices).toBe(2)
     expect(actions.map((action) => action.action)).toEqual(["observe", "observe", "click"])
+  })
+
+  test("high resolution offers tiled small targets before selection and does not tile twice", async () => {
+    const actions: Action[] = []
+    const native = (async (action: Action) => {
+      actions.push(action)
+      return { observation: { ...observation("f1"), elements: [] }, png: Buffer.from([1]), rawPng: Buffer.from([1]) }
+    }) as typeof import("@/tool/computer/native").runNative
+    const regions: Array<{ x: number; y: number; width: number; height: number } | undefined> = []
+    const parser = { health: async () => ({ ready: true }), close: async () => undefined,
+      parse: async (visualFrame: { id: string }, region?: { x: number; y: number; width: number; height: number }) => {
+        regions.push(region)
+        return { frameID: visualFrame.id,
+          boxes: region?.x === 640
+            ? [{ x: 1400, y: 60, width: 20, height: 20, confidence: 0.9, source: "detector" as const }]
+            : [], inferMs: 1, totalMs: 1 }
+      } }
+    let choices = 0
+    const choose: typeof selectJev = async ({ candidates: offered }) => {
+      choices++
+      expect(offered.items[0]).toMatchObject({ action: "click", box: { x: 1400, y: 60, width: 20, height: 20 } })
+      return { status: "needs_vision", reason: "abstained" }
+    }
+    const result = await runChoose({ intent: "点击右上角图标", resolution: "high", allowedActions: ["click"] }, undefined, {
+      native, parser, select: choose, ocr: async () => [],
+    })
+    expect(result).toMatchObject({ status: "needs_vision", reasonCode: "abstained" })
+    expect(regions).toEqual([
+      { x: 0, y: 0, width: 1280, height: 1080 },
+      { x: 640, y: 0, width: 1280, height: 1080 },
+    ])
+    expect(choices).toBe(1)
+    expect(actions.map((action) => action.action)).toEqual(["observe"])
   })
 
   test("maps every offered action type through the same raw coordinate transform", () => {

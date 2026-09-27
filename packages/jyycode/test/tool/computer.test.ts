@@ -169,6 +169,58 @@ describe("computer control boundary", () => {
     expect(() => toDesktopAction({ action: "drag", points: [{ x: 0, y: 0 }, { x: 2000, y: 0 }] }, frame)).toThrow("outside")
   })
 
+  test("prefers a validated accessibility click point and falls back to the center", () => {
+    const element = {
+      index: 1, name: "Save", role: "Button", automationId: "save", x: 170, y: 40,
+      width: 40, height: 30, enabled: true, focused: false, depth: 1,
+    }
+    const frame = {
+      screen: { x: 0, y: 0, width: 200, height: 100 },
+      image: { width: 200, height: 100 },
+      cursor: { x: 0, y: 0 }, window: "Editor", windowID: "42",
+      elements: [{ ...element, clickPoint: { x: 174, y: 45 } }],
+    }
+    expect(toDesktopAction({ action: "click", element: 1 }, frame)).toMatchObject({
+      x: 174, y: 45, expectWindow: "42", expectTarget: { x: 170, y: 40, width: 40, height: 30 },
+    })
+    frame.elements[0]!.clickPoint = { x: 205, y: 45 }
+    expect(toDesktopAction({ action: "click", element: 1 }, frame)).toMatchObject({ x: 190, y: 55 })
+    frame.elements[0]!.clickPoint = { x: 180, y: 75 }
+    expect(toDesktopAction({ action: "click", element: 1 }, frame)).toMatchObject({ x: 190, y: 55 })
+  })
+
+  test("maps zoom crop coordinates through the raw frame and reports the cropped view", () => {
+    const frame = {
+      frameID: "zoom-1",
+      screen: { x: -1920, y: 0, width: 3840, height: 1080 },
+      rawImage: { width: 3840, height: 1080 },
+      image: { width: 800, height: 600 },
+      view: { x: 2000, y: 100, width: 800, height: 600 },
+      cursor: { x: -500, y: 20 }, window: "Editor", windowID: "42",
+      inputCursor: { x: 180, y: 175 },
+      elements: [
+        { index: 1, name: "Save", role: "Button", automationId: "save", x: 120, y: 130,
+          width: 80, height: 40, enabled: true, focused: false, depth: 1 },
+        { index: 2, name: "Other", role: "Button", automationId: "other", x: -1200, y: 130,
+          width: 80, height: 40, enabled: true, focused: false, depth: 1 },
+      ],
+    }
+    expect(toDesktopAction({ action: "click", x: 100, y: 75, frameID: "zoom-1" }, frame)).toMatchObject({
+      x: 180, y: 175, expectWindow: "42",
+    })
+    expect(toDesktopAction({ action: "drag", points: [{ x: 0, y: 0 }, { x: 799, y: 599 }] }, frame)).toMatchObject({
+      points: [{ x: 80, y: 100 }, { x: 879, y: 699 }],
+    })
+    expect(() => toDesktopAction({ action: "click", x: 100, y: 75, frameID: "old" }, frame)).toThrow("frame changed")
+    expect(() => toDesktopAction({ action: "click", x: 800, y: 75 }, frame)).toThrow("outside")
+    const output = formatObservation(frame)
+    expect(output).toContain("Screenshot frameID: zoom-1")
+    expect(output).toContain("size 800×600. Cursor: outside view")
+    expect(output).toContain("Cursor immediately after input: (100, 75)")
+    expect(output).toContain('#1 Button "Save" at (40,30) 80×40; center (80,50)')
+    expect(output).not.toContain('#2 Button "Other"')
+  })
+
   test("refreshes element maps after semantic clicks while keeping ordinary actions fast", () => {
     expect(shouldIncludeElements({ action: "observe" })).toBe(true)
     expect(shouldIncludeElements({ action: "click", element: 7 })).toBe(true)

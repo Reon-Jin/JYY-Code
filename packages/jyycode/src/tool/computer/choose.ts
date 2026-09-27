@@ -148,6 +148,7 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
   let visualFrame: VisualFrame | undefined
   let detections: VisualBox[] = []
   let ocrTokens: OCRToken[] = []
+  let usedTiled = false
   const ocrProvider = deps.ocr ?? (localOCR.isReady() ? (value: VisualFrame, nextSignal?: AbortSignal, region?: Rect) => localOCR.parse(value, nextSignal, region) : undefined)
   if (!relevant) {
     const ready = "isReady" in parser && typeof parser.isReady === "function" ? parser.isReady() : true
@@ -157,8 +158,11 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
     }
     visualFrame = { id: frame.id, png: observed.rawPng, width: frame.rawImageSize.width, height: frame.rawImageSize.height }
     let detected: Awaited<ReturnType<VisualParser["parse"]>>
-    // A named screen corner is a cheap high-resolution crop and often avoids a full tiled retry.
-    try { detected = await parser.parse(visualFrame, regionFromIntent(visualFrame, input.intent), signal) }
+    usedTiled = input.resolution === "high" && (visualFrame.width > 1280 || visualFrame.height > 1280)
+    // Standard mode uses a fast whole-screen or corner crop; high mode preserves small targets with tiles.
+    try { detected = usedTiled
+      ? await parseTiled(parser, visualFrame, signal)
+      : await parser.parse(visualFrame, regionFromIntent(visualFrame, input.intent), signal) }
     catch { return fallback("vision_unavailable") }
     detections = detected.boxes
     fusion = fuseTargets({ frame, accessibilitySource: source, elements: observed.observation.elements,
@@ -185,7 +189,7 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
     }
   }
   if (decision.status === "needs_vision" && ["abstained", "low_confidence", "no_candidates"].includes(decision.reason) &&
-    visualFrame && (visualFrame.width > 1280 || visualFrame.height > 1280)) {
+    !usedTiled && visualFrame && (visualFrame.width > 1280 || visualFrame.height > 1280)) {
     try {
       const tiled = await parseTiled(parser, visualFrame, signal)
       fusion = fuseTargets({ frame, accessibilitySource: source, elements: observed.observation.elements,
