@@ -174,9 +174,20 @@ export const layer = Layer.effect(
 
       return yield* Effect.ensuring(
         Deferred.await(deferred),
-        Effect.sync(() => {
+        Effect.gen(function* () {
+          // An interrupted ask never resolves the deferred, so no reply event
+          // is published by the paths above. Clients clear their prompt from
+          // `question.rejected`, so publish the removal here or the prompt
+          // survives as a card whose reply can only fail with NotFoundError.
+          const answered = yield* Deferred.isDone(deferred)
           pending.delete(id)
-        }),
+          if (answered) return
+          yield* bus.publish(Event.Rejected, { sessionID: info.sessionID, requestID: id })
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.sync(() => log.error("failed to publish cancelled question request", { requestID: id, cause })),
+          ),
+        ),
       )
     })
 

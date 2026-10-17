@@ -1,5 +1,5 @@
 import { afterEach, expect } from "bun:test"
-import { Cause, Effect, Exit, Fiber, Layer, Queue } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, Queue } from "effect"
 import { Question } from "../../src/question"
 import { InstanceRef } from "../../src/effect/instance-ref"
 import { InstanceRuntime } from "../../src/project/instance-runtime"
@@ -116,6 +116,45 @@ it.instance(
 )
 
 // reply tests
+
+it.instance(
+  "ask - publishes a rejection when the waiting tool is interrupted",
+  () =>
+    Effect.gen(function* () {
+      const bus = yield* Bus.Service
+      const seen = yield* Deferred.make<QuestionID>()
+      const unsub = yield* bus.subscribeCallback(Question.Event.Rejected, (event) => {
+        Deferred.doneUnsafe(seen, Effect.succeed(event.properties.requestID))
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(unsub))
+
+      const fiber = yield* askEffect({
+        sessionID: SessionID.make("ses_test"),
+        questions: [
+          {
+            question: "What would you like to do?",
+            header: "Action",
+            options: [{ label: "Option 1", description: "First option" }],
+          },
+        ],
+      }).pipe(Effect.forkScoped)
+
+      const pending = yield* waitForPending(1)
+      const requestID = pending[0]!.id
+      yield* Fiber.interrupt(fiber)
+
+      expect(
+        yield* Deferred.await(seen).pipe(
+          Effect.timeoutOrElse({
+            duration: "1 second",
+            orElse: () => Effect.fail(new Error("timed out waiting for the cancelled question rejection")),
+          }),
+        ),
+      ).toBe(requestID)
+      expect(yield* listEffect).toHaveLength(0)
+    }),
+  { git: true },
+)
 
 it.instance(
   "reply - resolves the pending ask with answers",

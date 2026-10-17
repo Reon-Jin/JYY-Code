@@ -15,12 +15,14 @@ const request: PermissionRequest = {
   always: ["git status", "git diff *"],
 }
 
-function renderPermission(reply = vi.fn(async () => ({ data: true }))) {
+function renderPermission(reply = vi.fn(async () => ({ data: true })), onMissing?: () => void) {
   const client = { permission: { reply } }
   const [pending, setPending] = createSignal<PermissionRequest | undefined>(request)
   render(() => (
     <Show when={pending()} keyed>
-      {(value) => <PermissionBar client={client as never} directory={directory} request={value} />}
+      {(value) => (
+        <PermissionBar client={client as never} directory={directory} request={value} onMissing={onMissing} />
+      )}
     </Show>
   ))
   return { client, setPending }
@@ -72,6 +74,25 @@ describe("PermissionBar", () => {
       { directory, requestID: request.id, reply: "reject", message: "命令范围过大" },
       { throwOnError: true },
     )
+  })
+
+  it("shows an expired notice instead of a failure when the request is gone", async () => {
+    const user = userEvent.setup()
+    const onMissing = vi.fn()
+    const reply = vi.fn(async () => {
+      throw new Error("Permission request not found: per_1", {
+        cause: { status: 404, body: { _tag: "PermissionNotFoundError", requestID: "per_1" } },
+      })
+    })
+    renderPermission(reply, onMissing)
+
+    await user.click(screen.getByRole("button", { name: "仅本次允许" }))
+
+    expect(onMissing).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByText(/该权限请求已失效/)).toBeVisible()
+    expect(screen.getByRole("button", { name: "仅本次允许" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "始终允许" })).toBeDisabled()
   })
 
   it("moves focus only after Handle request is invoked and recovers from reply failures", async () => {

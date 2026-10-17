@@ -649,6 +649,42 @@ it.instance(
 )
 
 it.instance(
+  "ask - publishes a rejected reply when the waiting tool is interrupted",
+  () =>
+    Effect.gen(function* () {
+      const bus = yield* Bus.Service
+      const seen = yield* Deferred.make<Permission.Reply>()
+      const unsub = yield* bus.subscribeCallback(Permission.Event.Replied, (event) => {
+        Deferred.doneUnsafe(seen, Effect.succeed(event.properties.reply))
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(unsub))
+
+      const fiber = yield* ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "bash",
+        patterns: ["ls"],
+        metadata: {},
+        always: [],
+        ruleset: [],
+      }).pipe(Effect.forkScoped)
+
+      yield* waitForPending(1)
+      yield* Fiber.interrupt(fiber)
+
+      expect(
+        yield* Deferred.await(seen).pipe(
+          Effect.timeoutOrElse({
+            duration: "1 second",
+            orElse: () => Effect.fail(new Error("timed out waiting for the cancelled permission reply")),
+          }),
+        ),
+      ).toBe("reject")
+      expect(yield* list()).toHaveLength(0)
+    }),
+  { git: true },
+)
+
+it.instance(
   "ask - adds request to pending list",
   () =>
     Effect.gen(function* () {

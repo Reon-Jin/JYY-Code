@@ -230,9 +230,25 @@ export const layer = Layer.effect(
               }),
           }),
         ),
-        Effect.sync(() => {
+        Effect.gen(function* () {
+          // Every path above resolves the deferred before returning; an
+          // interrupted ask (tool budget exhausted, private scope closed) does
+          // not. Clients clear their prompt from `permission.replied`, so
+          // publish the removal here or the prompt survives as a card whose
+          // reply can only fail with NotFoundError.
+          const answered = yield* Deferred.isDone(deferred)
           pending.delete(id)
-        }),
+          if (answered) return
+          yield* bus.publish(Event.Replied, {
+            sessionID: info.sessionID,
+            requestID: id,
+            reply: "reject",
+          })
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.sync(() => log.error("failed to publish cancelled permission request", { requestID: id, cause })),
+          ),
+        ),
       )
     })
 

@@ -6,12 +6,15 @@ import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import type { DesktopClient } from "../../data/sdk"
 import { errorMessage } from "../projects/project-controller"
+import { isMissingRequestError } from "./request-error"
 import "./requests.css"
 
 export type QuestionPanelProps = {
   client: Pick<DesktopClient, "question">
   directory: string
   request: QuestionRequest
+  /** Called when the server no longer knows this request, so the owner can resync. */
+  onMissing?: () => void
 }
 
 export function QuestionPanel(props: QuestionPanelProps) {
@@ -20,8 +23,9 @@ export function QuestionPanel(props: QuestionPanelProps) {
   const [custom, setCustom] = createSignal<string[]>(props.request.questions.map(() => ""))
   const [submitting, setSubmitting] = createSignal(false)
   const [submitted, setSubmitted] = createSignal(false)
+  const [missing, setMissing] = createSignal(false)
   const [failure, setFailure] = createSignal<unknown>()
-  const disabled = () => submitting() || submitted()
+  const disabled = () => submitting() || submitted() || missing()
   let panel: HTMLElement | undefined
 
   const answers = createMemo(() =>
@@ -54,6 +58,19 @@ export function QuestionPanel(props: QuestionPanelProps) {
     }
   }
 
+  function fail(cause: unknown) {
+    // The request can be cancelled with its session, expire, or be answered
+    // elsewhere while this card is still on screen. That is not a failure of
+    // the user's click: drop the card and resync instead of surfacing the raw
+    // "not found" error.
+    if (isMissingRequestError(cause)) {
+      setMissing(true)
+      props.onMissing?.()
+      return
+    }
+    setFailure(cause)
+  }
+
   async function submit() {
     if (disabled() || !complete()) return
     setSubmitting(true)
@@ -65,7 +82,7 @@ export function QuestionPanel(props: QuestionPanelProps) {
       )
       setSubmitted(true)
     } catch (cause) {
-      setFailure(cause)
+      fail(cause)
     } finally {
       setSubmitting(false)
     }
@@ -82,7 +99,7 @@ export function QuestionPanel(props: QuestionPanelProps) {
       )
       setSubmitted(true)
     } catch (cause) {
-      setFailure(cause)
+      fail(cause)
     } finally {
       setSubmitting(false)
     }
@@ -220,7 +237,11 @@ export function QuestionPanel(props: QuestionPanelProps) {
           aria-label={tr("requests.question-request-status")}
           aria-live="polite"
         >
-          {submitted() ? tr("requests.submitted-waiting-for-confirmation-from-the-server") : ""}
+          {missing()
+            ? tr("requests.question-request-expired")
+            : submitted()
+              ? tr("requests.submitted-waiting-for-confirmation-from-the-server")
+              : ""}
         </p>
       </div>
     </section>

@@ -6,12 +6,15 @@ import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import type { DesktopClient } from "../../data/sdk"
 import { errorMessage } from "../projects/project-controller"
+import { isMissingRequestError } from "./request-error"
 import "./requests.css"
 
 export type PermissionBarProps = {
   client: Pick<DesktopClient, "permission">
   directory: string
   request: PermissionRequest
+  /** Called when the server no longer knows this request, so the owner can resync. */
+  onMissing?: () => void
 }
 
 type PermissionView = "request" | "always" | "reject"
@@ -21,8 +24,9 @@ export function PermissionBar(props: PermissionBarProps) {
   const [reason, setReason] = createSignal("")
   const [submitting, setSubmitting] = createSignal(false)
   const [submitted, setSubmitted] = createSignal(false)
+  const [missing, setMissing] = createSignal(false)
   const [failure, setFailure] = createSignal<unknown>()
-  const disabled = () => submitting() || submitted()
+  const disabled = () => submitting() || submitted() || missing()
   const alwaysPatterns = createMemo(() => (props.request.always.length ? props.request.always : props.request.patterns))
   let focusTarget: HTMLElement | undefined
 
@@ -48,6 +52,15 @@ export function PermissionBar(props: PermissionBarProps) {
       )
       setSubmitted(true)
     } catch (cause) {
+      // The request can expire (10 minute timeout), be cancelled with its
+      // session, or be answered elsewhere while this card is still on screen.
+      // That is not a failure of the user's click: drop the card and resync
+      // instead of surfacing the raw "not found" error.
+      if (isMissingRequestError(cause)) {
+        setMissing(true)
+        props.onMissing?.()
+        return
+      }
       setFailure(cause)
     } finally {
       setSubmitting(false)
@@ -175,7 +188,11 @@ export function PermissionBar(props: PermissionBarProps) {
           aria-label={tr("requests.permission-request-status")}
           aria-live="polite"
         >
-          {submitted() ? tr("requests.submitted-waiting-for-confirmation-from-the-server") : ""}
+          {missing()
+            ? tr("requests.permission-request-expired")
+            : submitted()
+              ? tr("requests.submitted-waiting-for-confirmation-from-the-server")
+              : ""}
         </p>
       </div>
     </section>

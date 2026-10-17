@@ -560,6 +560,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     () => ({
       ...permissionQueryOptions({ client: data.client(), directory: data.directory() }),
       enabled: Boolean(props.activeSessionID),
+      // Pending requests live in server memory and can expire (timeout,
+      // cancelled session) while a card is on screen. The event that would
+      // clear the card can be missed across reconnects or project switches, so
+      // poll the authoritative list while the UI believes something is pending.
+      refetchInterval: (query) => ((query.state.data?.length ?? 0) > 0 ? 15_000 : false),
     }),
     data.queryClient,
   )
@@ -567,6 +572,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     () => ({
       ...questionQueryOptions({ client: data.client(), directory: data.directory() }),
       enabled: Boolean(props.activeSessionID),
+      // Same reasoning as the permission list: reconcile a visible question
+      // card against the server while it is pending.
+      refetchInterval: (query) => ((query.state.data?.length ?? 0) > 0 ? 15_000 : false),
     }),
     data.queryClient,
   )
@@ -1024,9 +1032,19 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                   </p>
                 </Show>
                 {pending.type === "permission" ? (
-                  <PermissionBar client={data.client()} directory={data.directory()} request={pending.request} />
+                  <PermissionBar
+                    client={data.client()}
+                    directory={data.directory()}
+                    request={pending.request}
+                    onMissing={() => void permissionsQuery.refetch()}
+                  />
                 ) : (
-                  <QuestionPanel client={data.client()} directory={data.directory()} request={pending.request} />
+                  <QuestionPanel
+                    client={data.client()}
+                    directory={data.directory()}
+                    request={pending.request}
+                    onMissing={() => void questionsQuery.refetch()}
+                  />
                 )}
               </>
             )}

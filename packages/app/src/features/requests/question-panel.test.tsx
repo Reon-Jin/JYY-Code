@@ -21,7 +21,7 @@ const single: QuestionRequest = {
   ],
 }
 
-function renderQuestion(request: QuestionRequest, reply = vi.fn(async () => ({ data: true }))) {
+function renderQuestion(request: QuestionRequest, reply = vi.fn(async () => ({ data: true })), onMissing?: () => void) {
   const client = {
     question: {
       reply,
@@ -31,7 +31,9 @@ function renderQuestion(request: QuestionRequest, reply = vi.fn(async () => ({ d
   const [pending, setPending] = createSignal<QuestionRequest | undefined>(request)
   render(() => (
     <Show when={pending()} keyed>
-      {(value) => <QuestionPanel client={client as never} directory={directory} request={value} />}
+      {(value) => (
+        <QuestionPanel client={client as never} directory={directory} request={value} onMissing={onMissing} />
+      )}
     </Show>
   ))
   return { client, setPending }
@@ -106,6 +108,25 @@ describe("QuestionPanel", () => {
     await user.click(screen.getByRole("button", { name: "拒绝问题" }))
     expect(client.question.reject).toHaveBeenCalledWith({ directory, requestID: single.id }, { throwOnError: true })
     expect(screen.getByRole("region", { name: "Agent 提问" })).toBeVisible()
+  })
+
+  it("shows an expired notice instead of a failure when the request is gone", async () => {
+    const user = userEvent.setup()
+    const onMissing = vi.fn()
+    const reply = vi.fn(async () => {
+      throw new Error("Question request not found: que_single", {
+        cause: { status: 404, body: { _tag: "QuestionNotFoundError", requestID: "que_single" } },
+      })
+    })
+    renderQuestion(single, reply, onMissing)
+
+    await user.click(screen.getByRole("radio", { name: /完整/ }))
+    await user.click(screen.getByRole("button", { name: "提交回答" }))
+
+    expect(onMissing).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByRole("status", { name: "问题请求状态" })).toHaveTextContent("该问题请求已失效")
+    expect(screen.getByRole("button", { name: "提交回答" })).toBeDisabled()
   })
 
   it("re-enables submission when the reply fails", async () => {
