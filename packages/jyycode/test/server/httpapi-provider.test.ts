@@ -1,13 +1,17 @@
 import { describe, expect } from "bun:test"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
+import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { Effect, Layer } from "effect"
 import path from "path"
 import { Server } from "../../src/server/server"
 import * as Log from "@jyycode-ai/core/util/log"
 import { resetDatabase } from "../fixture/db"
-import { TestInstance } from "../fixture/fixture"
+import { TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { markPluginDependenciesReady } from "../fixture/plugin"
-import { testEffect } from "../lib/effect"
+import { testEffect, testEffectShared } from "../lib/effect"
+import { Auth } from "../../src/auth"
+import { Provider } from "../../src/provider/provider"
+import { ModelID, ProviderID } from "../../src/provider/schema"
 
 void Log.init({ print: false })
 
@@ -19,6 +23,9 @@ const testStateLayer = Layer.effectDiscard(
 )
 
 const it = testEffect(Layer.mergeAll(testStateLayer, AppFileSystem.defaultLayer))
+const credentialChanges = testEffectShared(
+  Layer.mergeAll(testStateLayer, Auth.defaultLayer, Provider.defaultLayer, CrossSpawnSpawner.defaultLayer),
+)
 const projectOptions = { config: { formatter: false, lsp: false } }
 const providerID = "test-oauth-parity"
 const oauthURL = "https://example.com/oauth"
@@ -274,6 +281,54 @@ function setEnvScoped(key: string, value: string) {
 }
 
 describe("provider HttpApi", () => {
+  credentialChanges.instance(
+    "refreshes models and SDKs after credential changes without disposing the project",
+    Effect.gen(function* () {
+      const instance = yield* TestInstance
+      const other = yield* tmpdirScoped({ config: { ...projectOptions.config, enabled_providers: ["deepseek"] } })
+      const auth = yield* Auth.Service
+      const id = ProviderID.make("deepseek")
+      yield* setEnvScoped("DEEPSEEK_API_KEY", "")
+      const previous = yield* auth.get(id).pipe(Effect.orDie)
+      yield* Effect.addFinalizer(() => (previous ? auth.set(id, previous) : auth.remove(id)).pipe(Effect.orDie))
+      yield* auth.remove(id).pipe(Effect.orDie)
+      const server = app()
+      const headers = { "x-jyycode-directory": instance.directory, "content-type": "application/json" }
+      const request = (url: string, init?: RequestInit, directory = instance.directory) =>
+        Effect.promise(async () => {
+          const response = await server.request(url, {
+            ...init,
+            headers: { ...headers, "x-jyycode-directory": directory },
+          })
+          expect(response.status).toBe(200)
+          return response.json()
+        })
+
+      expect(providerByID(yield* request("/config/providers"), "providers", id)).toBeUndefined()
+      expect(providerByID(yield* request("/config/providers", undefined, other), "providers", id)).toBeUndefined()
+      expect((yield* request("/provider")).connected).not.toContain(id)
+      yield* request(`/auth/${id}`, { method: "PUT", body: JSON.stringify({ type: "api", key: "first-test-key" }) })
+
+      const connected = yield* request("/provider")
+      expect(connected.connected).toContain(id)
+      expect(providerByID(yield* request("/config/providers"), "providers", id)).toBeDefined()
+      expect(providerByID(yield* request("/config/providers", undefined, other), "providers", id)).toBeDefined()
+      const model = yield* Provider.use.getModel(id, ModelID.make("deepseek-chat"))
+      const firstLanguage = yield* Provider.use.getLanguage(model)
+
+      yield* request(`/auth/${id}`, { method: "PUT", body: JSON.stringify({ type: "api", key: "second-test-key" }) })
+      const updated = yield* Provider.use.getModel(id, model.id)
+      expect((yield* Provider.use.getLanguage(updated)) === firstLanguage).toBe(false)
+
+      yield* request(`/auth/${id}`, { method: "DELETE" })
+      expect((yield* request("/provider")).connected).not.toContain(id)
+      expect(providerByID(yield* request("/config/providers"), "providers", id)).toBeUndefined()
+      expect(providerByID(yield* request("/config/providers", undefined, other), "providers", id)).toBeUndefined()
+    }),
+    { config: { ...projectOptions.config, enabled_providers: ["deepseek"] } },
+    30000,
+  )
+
   it.instance.skip(
     "returns public v2 provider not found errors",
     Effect.gen(function* () {

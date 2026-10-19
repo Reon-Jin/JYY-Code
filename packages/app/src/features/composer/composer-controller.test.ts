@@ -36,6 +36,14 @@ function setup(draftStore = new Map<string, string>(), requestDirectory?: string
 }
 
 describe("createComposerController", () => {
+  it.each(["low", "high", "max"])("sends the selected %s reasoning depth for normal messages", async (variant) => {
+    const { client, controller } = setup()
+    await controller.send("hello", { agent: "build", model: { ...model, variant } })
+    expect(client.session.promptAsync).toHaveBeenCalledWith(expect.objectContaining({ model, variant }), {
+      throwOnError: true,
+    })
+  })
+
   it("submits exactly one async prompt", async () => {
     const { client, controller } = setup()
     const pending = deferred()
@@ -109,6 +117,16 @@ describe("createComposerController", () => {
     expect((client.session.promptAsync.mock.calls[1]?.[0] as { parts: unknown }).parts).toEqual([
       { type: "text", text: "keep me" },
     ])
+  })
+
+  it("preserves the selected reasoning depth for slash commands", async () => {
+    const { client, controller } = setup()
+    await controller.send("/pdf polish this report", { agent: "build", model: { ...model, variant: "high" } })
+
+    expect(client.session.command).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "openai/gpt-5", variant: "high" }),
+      { throwOnError: true },
+    )
   })
 
   it("checks trimmed emptiness but sends original text", async () => {

@@ -17,7 +17,7 @@ import { iife } from "@/util/iife"
 import { Global } from "@jyycode-ai/core/global"
 import path from "path"
 import { pathToFileURL } from "url"
-import { Effect, Layer, Context, Schema, Types } from "effect"
+import { Effect, Layer, Context, Schema, ScopedCache, Types } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { EffectPromise } from "@/effect/promise"
@@ -1034,6 +1034,7 @@ export type DefaultModelError = ModelNotFoundError | NoProvidersError | NoModels
 export type Error = ModelNotFoundError | InitError | NoProvidersError | NoModelsError
 
 export interface Interface {
+  readonly invalidate: () => Effect.Effect<void>
   readonly list: () => Effect.Effect<Record<ProviderID, Info>>
   readonly getProvider: (providerID: ProviderID) => Effect.Effect<Info>
   readonly getModel: (providerID: ProviderID, modelID: ModelID) => Effect.Effect<Model, ModelNotFoundError>
@@ -1564,6 +1565,9 @@ export const layer = Layer.effect(
       }),
     )
 
+    // Credentials are global: rebuild each project's catalog and SDK cache
+    // before the next lookup without tearing down active sessions.
+    const invalidate = Effect.fn("Provider.invalidate")(() => ScopedCache.invalidateAll(state.cache))
     const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
 
     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
@@ -1883,7 +1887,7 @@ export const layer = Layer.effect(
       }
     })
 
-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
+    return Service.of({ invalidate, list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
   }),
 )
 

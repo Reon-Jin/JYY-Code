@@ -100,6 +100,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
           code: ctx.payload.code,
         }),
       )
+      yield* provider.invalidate()
       return true
     })
 

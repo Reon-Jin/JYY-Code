@@ -1079,7 +1079,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                       directory={data.directory()}
                       disabled={data.connection() !== "connected"}
                       onProviderConnected={async () => {
-                        await catalogQuery.refetch()
+                        await catalogQuery.refetch({ throwOnError: true })
                       }}
                     />
                   }
@@ -1146,7 +1146,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     }
                     onModelChange={changeModel}
                     onProviderConnected={async () => {
-                      await catalogQuery.refetch()
+                      await catalogQuery.refetch({ throwOnError: true })
                     }}
                   />
                 </Show>

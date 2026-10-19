@@ -24,7 +24,7 @@ function renderConnect() {
     auth: { set: vi.fn(async () => ({ data: true })) },
     instance: { dispose: vi.fn(async () => ({ data: true })) },
   }
-  const onConnected = vi.fn(async () => undefined)
+  const onConnected = vi.fn(async (): Promise<void> => undefined)
   render(() => <ProviderConnectButton client={client as never} directory={directory} onConnected={onConnected} />)
   return { client, onConnected }
 }
@@ -79,7 +79,7 @@ describe("ProviderConnectButton", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
-  it("stores the API key, reloads the instance, and closes", async () => {
+  it("stores the API key, refreshes the catalog without disposing the project, and closes", async () => {
     const user = userEvent.setup()
     const { client, onConnected } = renderConnect()
 
@@ -94,9 +94,42 @@ describe("ProviderConnectButton", () => {
         { throwOnError: true },
       ),
     )
-    expect(client.instance.dispose).toHaveBeenCalledWith({ directory }, { throwOnError: true })
+    expect(client.instance.dispose).not.toHaveBeenCalled()
     expect(onConnected).toHaveBeenCalledWith("deepseek")
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(screen.queryByDisplayValue("secret-key")).not.toBeInTheDocument()
+  })
+
+  it("waits for the refreshed catalog before closing", async () => {
+    const user = userEvent.setup()
+    const { client, onConnected } = renderConnect()
+    let finish!: () => void
+    const refreshed = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    onConnected.mockImplementationOnce(() => refreshed)
+
+    await user.click(screen.getByRole("button", { name: "连接" }))
+    await user.click(await screen.findByRole("button", { name: /DeepSeek/ }))
+    await user.type(screen.getByLabelText("API 密钥"), "secret-key")
+    await user.click(screen.getAllByRole("button", { name: "连接" }).at(-1)!)
+    await waitFor(() => expect(onConnected).toHaveBeenCalledWith("deepseek"))
+    expect(client.auth.set).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("dialog")).toBeVisible()
+    finish()
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+  })
+
+  it("keeps the dialog open when refreshing the catalog fails", async () => {
+    const user = userEvent.setup()
+    const { onConnected } = renderConnect()
+    onConnected.mockRejectedValueOnce(new Error("Catalog refresh failed"))
+
+    await user.click(screen.getByRole("button", { name: "连接" }))
+    await user.click(await screen.findByRole("button", { name: /DeepSeek/ }))
+    await user.type(screen.getByLabelText("API 密钥"), "secret-key")
+    await user.click(screen.getAllByRole("button", { name: "连接" }).at(-1)!)
+    expect(await screen.findByText("Catalog refresh failed")).toBeVisible()
+    expect(screen.getByRole("dialog")).toBeVisible()
   })
 })

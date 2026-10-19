@@ -110,6 +110,7 @@ export function createComposerController(input: ComposerControllerInput) {
               sessionID,
               agent,
               model: `${model.providerID}/${model.modelID}`,
+              ...(model.variant ? { variant: model.variant } : {}),
               ...command,
             },
             { throwOnError: true },

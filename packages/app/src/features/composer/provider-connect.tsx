@@ -7,7 +7,7 @@ import { Dialog } from "../../components/ui/dialog"
 import { InlineError } from "../../components/ui/inline-error"
 import type { DesktopClient } from "../../data/sdk"
 
-type ProviderConnectClient = Pick<DesktopClient, "auth" | "instance" | "provider">
+type ProviderConnectClient = Pick<DesktopClient, "auth" | "provider">
 
 export function ProviderConnectButton(props: {
   client: ProviderConnectClient
@@ -75,7 +75,6 @@ export function ProviderConnectButton(props: {
     setFailure(undefined)
     try {
       await props.client.auth.set({ providerID: provider.id, auth: { type: "api", key } }, { throwOnError: true })
-      await props.client.instance.dispose({ directory: props.directory }, { throwOnError: true })
       await props.onConnected(provider.id)
       close()
     } catch (cause) {

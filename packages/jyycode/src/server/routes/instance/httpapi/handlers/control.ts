@@ -1,4 +1,5 @@
 import { Auth } from "@/auth"
+import { Provider } from "@/provider/provider"
 import { ProviderID } from "@/provider/schema"
 import { JEV_CREDENTIAL_ID, jevApiKey } from "@/tool/computer/mode"
 import * as Log from "@jyycode-ai/core/util/log"
@@ -10,6 +11,7 @@ import { LogInput } from "../groups/control"
 export const controlHandlers = HttpApiBuilder.group(RootHttpApi, "control", (handlers) =>
   Effect.gen(function* () {
     const auth = yield* Auth.Service
+    const provider = yield* Provider.Service
 
     const authStatus = Effect.fn("ControlHttpApi.authStatus")(function* (ctx: { params: { providerID: ProviderID } }) {
       if (ctx.params.providerID === JEV_CREDENTIAL_ID) {
@@ -23,11 +25,13 @@ export const controlHandlers = HttpApiBuilder.group(RootHttpApi, "control", (han
       payload: Auth.Info
     }) {
       yield* auth.set(ctx.params.providerID, ctx.payload).pipe(Effect.orDie)
+      yield* provider.invalidate()
       return true
     })
 
     const authRemove = Effect.fn("ControlHttpApi.authRemove")(function* (ctx: { params: { providerID: ProviderID } }) {
       yield* auth.remove(ctx.params.providerID).pipe(Effect.orDie)
+      yield* provider.invalidate()
       return true
     })
 
