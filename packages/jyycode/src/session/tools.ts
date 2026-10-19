@@ -226,6 +226,7 @@ type PlanToolGateState = {
     candidate_discussion?: { phase?: string }
     tasks: Array<{
       id: string
+      mode?: string
       status: string
       done_criteria: string
       output_path: string | null
@@ -243,6 +244,15 @@ function pendingDispatchTasks(plan: PlanToolGateState | undefined) {
 
 function hasReviewContinuation(task: PlanToolGateState["steps"][number]["tasks"][number]) {
   return Boolean(task.dispatch?.child_session_id && task.report?.review_feedback?.trim())
+}
+
+/** Standard reports are independently reviewable even while sibling tasks are still running. */
+export function pendingPlanReviewTasks(plan: PlanToolGateState | undefined) {
+  return plan?.steps.flatMap((step) =>
+    step.tasks
+      .filter((task) => task.status === "reported" && task.mode !== "candidate")
+      .map((task) => ({ stepId: step.id, taskId: task.id })),
+  ) ?? []
 }
 
 /**
@@ -475,6 +485,9 @@ export function requiredPlanTool(input: {
   if (input.step === 1) return input.multiAgent && input.planExists === false ? "Plan_create" : "Plan_read"
   if (input.multiAgent && input.planExists === false) return input.planCreateFailed ? "Plan_read" : "Plan_create"
   if (input.multiAgent) {
+    // Keep the full inspection/review surface open. Dispatch/recovery gates
+    // otherwise hide artifact tools when a sibling is pending or rejected.
+    if (pendingPlanReviewTasks(input.plan).length > 0) return undefined
     const currentStep = input.plan?.current_step
       ? input.plan.steps.find((step) => step.id === input.plan?.current_step)
       : undefined

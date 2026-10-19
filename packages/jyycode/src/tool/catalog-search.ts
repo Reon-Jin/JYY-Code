@@ -41,6 +41,11 @@ const FIELD_WEIGHTS: Record<FieldName, number> = {
   examples: 1.5,
 }
 
+// Runtime plumbing, not user-selectable tools: `tool_search` is the search
+// itself, and `invalid` only reports malformed calls. Offering either as a
+// result would suggest a capability the model cannot usefully call.
+const HIDDEN_FROM_SEARCH = new Set(["tool_search", "invalid"])
+
 export function clampLimit(limit = DEFAULT_LIMIT) {
   return Math.max(MIN_LIMIT, Math.min(MAX_LIMIT, Math.floor(limit)))
 }
@@ -61,7 +66,7 @@ export function search(input: SearchInput): SearchResult[] {
   if (terms.length === 0 && !category) return []
 
   const candidates = input.tools
-    .filter((tool) => tool.id !== "tool_search")
+    .filter((tool) => !HIDDEN_FROM_SEARCH.has(tool.id))
     .filter((tool) => (category ? tool.catalog?.category === category : true))
   const stats = buildStats(candidates)
 

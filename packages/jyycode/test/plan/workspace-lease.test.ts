@@ -51,4 +51,24 @@ describe("workspace lease", () => {
     })
     expect(() => store.heartbeat(workspace, { sessionId: "other" })).toThrow("session mismatch")
   })
+
+  it("keeps failed retention stable when exit settlement is repeated", () => {
+    const runtimeRoot = tempDirectory("jyycode-lease-finished-")
+    const workspace = path.join(runtimeRoot, "child")
+    fs.mkdirSync(workspace)
+    let now = 1000
+    const store = new WorkspaceLeaseStore({ runtimeRoot, now: () => now })
+    store.create({
+      workspace_directory: workspace,
+      root_session_id: "root",
+      task_id: "task",
+      run_id: "run",
+      session_id: "child",
+    })
+    const first = store.finish(workspace, "failure", 86400000)!
+    now += 1000
+    const repeated = store.finish(workspace, "success", 600000)!
+    expect(repeated).toEqual(first)
+    expect(repeated.terminal_state).toBe("failure")
+  })
 })

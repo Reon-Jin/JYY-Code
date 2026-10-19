@@ -36,9 +36,10 @@ import { ChildWorkspace, worktreeAdapter, type SnapshotLimits } from "./child-wo
 import { terminateChild, type ChildTerminationRequest } from "./child-termination"
 import { InstanceStore } from "@/project/instance-store"
 import * as Log from "@jyycode-ai/core/util/log"
-import { canDispatchSnapshot } from "./workspace-sweeper"
 import { removeWorkspaceLeaseFile, WorkspaceLeaseStore } from "./workspace-lease"
 import { activationOwnerId, defaultPlanActivationStore } from "./activation"
+import { legacySnapshotRuntimeRoots, snapshotRuntimeRoot } from "./workspace-storage"
+import { WORKSPACE_RETENTION_DEFAULTS } from "./workspace-sweeper"
 
 const log = Log.create({ service: "plan" })
 
@@ -60,7 +61,8 @@ export function childWorkspaceFor(input: {
       root: projectInfo.id === "global" ? input.session.directory : projectInfo.worktree,
       vcs: isGit ? "git" : "none",
     },
-    runtimeRoot: path.join(Global.Path.data, isGit ? "worktree" : "plan-workspaces", String(projectInfo.id)),
+    runtimeRoot: workspaceRuntimeRoot(input)!,
+    ...(!isGit ? { legacyRuntimeRoots: legacySnapshotRuntimeRoots(Global.Path.data) } : {}),
     ...(isGit && input.worktree
       ? { worktree: worktreeAdapter({ service: input.worktree, run: input.bridge.promise }) }
       : {}),
@@ -71,18 +73,23 @@ export function childWorkspaceFor(input: {
   })
 }
 
-function workspaceRuntimeRoot(input: { projectInfo?: Project.Info }) {
+function workspaceRuntimeRoot(input: { projectInfo?: Project.Info; session: Pick<Session.Info, "directory"> }) {
   if (!input.projectInfo) return undefined
-  return path.join(
-    Global.Path.data,
-    input.projectInfo.vcs === "git" ? "worktree" : "plan-workspaces",
-    String(input.projectInfo.id),
-  )
+  return input.projectInfo.vcs === "git"
+    ? path.join(Global.Path.data, "worktree", String(input.projectInfo.id))
+    : snapshotRuntimeRoot(Global.Path.data, input.session.directory)
 }
 
-function workspaceLeaseStoreFor(input: { projectInfo?: Project.Info }) {
+function workspaceLeaseStoreFor(input: { projectInfo?: Project.Info; session: Pick<Session.Info, "directory"> }) {
   const runtimeRoot = workspaceRuntimeRoot(input)
-  return runtimeRoot ? new WorkspaceLeaseStore({ runtimeRoot }) : undefined
+  return runtimeRoot
+    ? new WorkspaceLeaseStore({
+        runtimeRoot,
+        ...(input.projectInfo?.vcs !== "git"
+          ? { legacyRuntimeRoots: legacySnapshotRuntimeRoots(Global.Path.data) }
+          : {}),
+      })
+    : undefined
 }
 
 const Empty = Schema.Struct({})
@@ -803,17 +810,13 @@ function protocolFor(
           }, 30_000)
         : undefined
     if (heartbeat && typeof heartbeat === "object" && "unref" in heartbeat) heartbeat.unref()
-    const releaseLease = () => {
+    const stopHeartbeats = () => {
       if (heartbeat) clearInterval(heartbeat)
       if (activationHeartbeat) clearInterval(activationHeartbeat)
-      if (input.workspace?.directory && input.workspace.mode !== "shared_compat") {
-        if (runtime.leaseStore) runtime.leaseStore.remove(input.workspace.directory)
-        else removeWorkspaceLeaseFile(input.workspace.directory)
-      }
     }
     const settleAndNotify = (message?: string) =>
       Effect.gen(function* () {
-        releaseLease()
+        stopHeartbeats()
         if (takeChildRunIntent(input.childSessionId)) return
         const budgetFailure = takeChildBudgetFailure(input.childSessionId)
         const outcome = yield* Effect.promise(() =>
@@ -825,6 +828,18 @@ function protocolFor(
             runId: input.brief.run_id,
           }),
         ).pipe(Effect.orElseSucceed(() => ({ settled: false, reason: "settle_failed" })))
+        if (input.workspace?.directory && input.workspace.mode !== "shared_compat" && runtime.leaseStore) {
+          const failed =
+            message !== undefined ||
+            budgetFailure !== undefined ||
+            outcome.settled ||
+            outcome.reason === "settle_failed"
+          runtime.leaseStore.finish(
+            input.workspace.directory,
+            failed ? "failure" : "success",
+            failed ? WORKSPACE_RETENTION_DEFAULTS.retainedFailureMs : WORKSPACE_RETENTION_DEFAULTS.successCancelMs,
+          )
+        }
         if (message === undefined && !budgetFailure && !outcome.settled) return
         const failureMessage =
           budgetFailure === "MAX_STEPS_BUDGET_EXCEEDED"
@@ -956,7 +971,12 @@ function protocolFor(
           },
         )
         if (request?.workspace?.directory && result?.state === "stopped") {
-          if (runtime.leaseStore) runtime.leaseStore.remove(request.workspace.directory)
+          if (runtime.leaseStore)
+            runtime.leaseStore.finish(
+              request.workspace.directory,
+              "cancel",
+              WORKSPACE_RETENTION_DEFAULTS.successCancelMs,
+            )
           else removeWorkspaceLeaseFile(request.workspace.directory)
         }
         return result
@@ -1229,7 +1249,7 @@ export const PlanUpdateTool = Tool.define(
             ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
             : undefined
           const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
-          const leaseStore = workspaceLeaseStoreFor({ projectInfo })
+          const leaseStore = workspaceLeaseStoreFor({ projectInfo, session })
           const disposeDirectory = (directory: string) =>
             bridge.promise(InstanceStore.Service.use((store) => store.disposeDirectory(directory)))
           const protocol = protocolFor(sessions, bus, {
@@ -1315,19 +1335,9 @@ export const DispatchDispatchTool = Tool.define(
                 }
               : undefined,
           })
-          const leaseStore = workspaceLeaseStoreFor({ projectInfo })
-          if (
-            childWorkspace?.capability() === "snapshot" &&
-            leaseStore &&
-            !(yield* Effect.promise(() => canDispatchSnapshot(leaseStore.runtimeRoot)))
-          ) {
-            throw new PlanProtocolError({
-              code: "DISPATCH_UNAVAILABLE",
-              message: "runtime workspace hard limit reached; snapshot dispatch is temporarily refused",
-              hint: "清理已完成或失败的 workspace 后重试，active lease 不会被自动删除。",
-              retryable: true,
-            })
-          }
+          const leaseStore = workspaceLeaseStoreFor({ projectInfo, session })
+          // ChildWorkspace.preflight checks current usage plus this wave's cost
+          // before task mutation; a separate admission scan doubles cold latency.
           const disposeDirectory = (directory: string) =>
             bridge.promise(InstanceStore.Service.use((store) => store.disposeDirectory(directory)))
           const protocol = protocolFor(sessions, bus, {
@@ -1341,7 +1351,9 @@ export const DispatchDispatchTool = Tool.define(
               : {}),
             profiles: async () => enabledProfiles(resolveProfiles(runtimeConfig.subagents?.profiles)),
           })
-          const result = yield* Effect.promise(() => protocol.dispatch(protocolContext(session, ctx), input))
+          const result = yield* Effect.promise(() =>
+            protocol.dispatch({ ...protocolContext(session, ctx), abortSignal: ctx.abort }, input),
+          )
           // A failed dispatch still settles the task as rejected and records
           // an Inbox item. Invalidate this turn's tool snapshot as well, so
           // batched/replayed Dispatch_dispatch calls cannot retry stale input
@@ -1413,7 +1425,7 @@ export const DispatchCancelTool = Tool.define(
             ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
             : undefined
           const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
-          const leaseStore = workspaceLeaseStoreFor({ projectInfo })
+          const leaseStore = workspaceLeaseStoreFor({ projectInfo, session })
           const disposeDirectory = (directory: string) =>
             bridge.promise(InstanceStore.Service.use((store) => store.disposeDirectory(directory)))
           const protocol = protocolFor(sessions, bus, {
@@ -1605,7 +1617,6 @@ export const ReportTool = Tool.define(
             },
           })
           const result = yield* Effect.promise(() => protocol.report(protocolContext(session, ctx), input))
-          if (result.ok) removeWorkspaceLeaseFile(session.directory)
           if (result.ok) requestToolCatalogRefresh(ctx)
           const effectiveRunId = runId(ctx)
           const parentSessionId = effectiveRunId ? parentSessionIdForRunId(effectiveRunId) : undefined
@@ -1615,7 +1626,7 @@ export const ReportTool = Tool.define(
                 .wake({
                   sessionID: parentSessionId as SessionID,
                   kind: "plan_report_arrived",
-                  text: `子 Agent 已提交 ${effectiveRunId} 的 Report（${result.review}）。先调用 Plan_read，再审核汇报或处理 Inbox。`,
+                  text: `子 Agent 已提交 ${effectiveRunId} 的 Report（${result.review}）。先调用 Plan_read，再立即检查产物并逐个审核或处理 Inbox；不要等待同 Step 其他任务完成。驳回时给出具体 feedback，运行时会立即续派返修。`,
                 })
                 .pipe(Effect.ignore),
             )

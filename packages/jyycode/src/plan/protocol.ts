@@ -90,6 +90,8 @@ export type ExecutionMode = "single" | "multi"
 
 export type PlanExecutionContext = {
   workspaceRoot: string
+  /** Runtime tool deadline/cancellation; never supplied by model input. */
+  abortSignal?: AbortSignal
   /** Runtime-injected parent plan directory; distinct from an isolated child workspace. */
   planRoot?: string
   sessionId: string
@@ -845,7 +847,7 @@ function nextActionHint(plan: PlanFile, inboxPending: number) {
     }
   }
   const reported = plan.steps.flatMap((step) => step.tasks).filter((task) => task.status === "reported")
-  if (reported.length) return `有 ${reported.length} 个任务待审核：${reported.map((task) => task.id).join("、")}`
+  if (reported.length) return `有 ${reported.length} 个任务待审核：${reported.map((task) => task.id).join("、")}；立即逐个检查产物并用 Plan_update(review_task) 审核，不要等待同 Step 其他任务完成；驳回时提供具体 feedback，运行时会立即续派返修`
   const rejected = current.tasks.filter((task) => task.status === "rejected")
   const resumableRejected = rejected.filter((task) => hasReviewContinuation(task))
   if (resumableRejected.length)
@@ -2042,6 +2044,7 @@ export class PlanProtocol {
     try {
       assertMain(ctx)
       assertMode(ctx, "multi", "Dispatch_dispatch")
+      ctx.abortSignal?.throwIfAborted()
       let childAgentDepth: number
       try {
         childAgentDepth = assertCanSpawnSubagent(ctx.agentDepth ?? 0)
@@ -2109,6 +2112,7 @@ export class PlanProtocol {
       >()
       const needsRole = targets.some(({ task }) => task.status !== "dispatched" && task.status !== "running")
       const role = needsRole ? await this.resolveProfile(input.role) : undefined
+      ctx.abortSignal?.throwIfAborted()
       for (const { step, task } of targets) {
         if (task.status === "dispatched" || task.status === "running") {
           if (!task.dispatch)
@@ -2244,6 +2248,7 @@ export class PlanProtocol {
           try {
             const preflight = await this.childWorkspace.preflight(
               [...prepared.values()].flatMap((item) => (item.reservation ? [item.reservation] : [])),
+              ctx.abortSignal,
             )
             launchConcurrency = effectiveConcurrency(this.maxConcurrentChildren, preflight?.manifest.total_bytes)
             this.metric(ctx.sessionId, {
@@ -2268,6 +2273,7 @@ export class PlanProtocol {
           }
         }
         const result = await this.write(ctx, (latest) => {
+          ctx.abortSignal?.throwIfAborted()
           if (!latest)
             throw new PlanProtocolError({
               code: ERROR_CODES.INVALID_STATE,
@@ -2304,8 +2310,10 @@ export class PlanProtocol {
             let actualChild: string | undefined
             let workspaceHandle: WorkspaceHandle | undefined = item.workspace
             try {
+              ctx.abortSignal?.throwIfAborted()
               if (item.reservation && this.childWorkspace) {
                 workspaceHandle = await this.childWorkspace.create(item.reservation)
+                ctx.abortSignal?.throwIfAborted()
                 this.metric(ctx.sessionId, {
                   metric: "dispatch",
                   phase: "workspace",
@@ -2376,6 +2384,7 @@ export class PlanProtocol {
                     status: "running",
                     activation_generation: activation.generation,
                   })
+                  ctx.abortSignal?.throwIfAborted()
                   await this.children.resume(childInput)
                   this.activation.transition({
                     session_id: activation.session_id,
@@ -2387,6 +2396,7 @@ export class PlanProtocol {
                 } else {
                   const createdChild = await this.children.create(childInput)
                   actualChild = createdChild
+                  ctx.abortSignal?.throwIfAborted()
                   this.metric(ctx.sessionId, {
                     metric: "dispatch",
                     phase: "create",
@@ -2415,6 +2425,7 @@ export class PlanProtocol {
                   // The child may report synchronously from its first loop,
                   // so publish the reportable running state before starting it.
                   await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
+                  ctx.abortSignal?.throwIfAborted()
                   await this.children.start(childInput)
                   this.activation.transition({
                     session_id: activation.session_id,

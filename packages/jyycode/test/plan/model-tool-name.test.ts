@@ -7,6 +7,7 @@ import {
   candidateToolGateState,
   filterToolIDs,
   hasInFlightPlanTasks,
+  pendingPlanReviewTasks,
   intersectToolIDs,
   isPlanToolVisible,
   isSubagentToolVisible,
@@ -609,6 +610,37 @@ describe("model-facing plan tool names", () => {
         plan: { ...running, steps: [{ id: "s1", tasks: [{ ...running.steps[0]!.tasks[0]!, status: "reported" }] }] },
       }),
     ).toBe(false)
+  })
+
+  it("reviews reported standard tasks while siblings are running or awaiting dispatch", () => {
+    const plan = {
+      current_step: "s1",
+      steps: [{ id: "s1", tasks: [
+        { id: "s1_t1", status: "reported", done_criteria: "x", output_path: "x.md" },
+        { id: "s1_t2", status: "running", done_criteria: "y", output_path: "y.md" },
+        { id: "s1_t3", status: "pending", done_criteria: "z", output_path: "z.md" },
+      ] }],
+    }
+    expect(pendingPlanReviewTasks(plan)).toEqual([{ stepId: "s1", taskId: "s1_t1" }])
+    expect(shouldWaitForPlanReport({ plan })).toBe(false)
+    // A forced dispatch/recovery gate would hide artifact inspection tools.
+    for (const status of ["pending", "rejected", "running"]) {
+      plan.steps[0]!.tasks[2]!.status = status
+      expect(requiredPlanTool({ root: true, multiAgent: true, step: 2, plan })).toBeUndefined()
+    }
+    expect(requiredPlanTool({ root: true, multiAgent: true, step: 1, plan })).toBe("Plan_read")
+    plan.steps[0]!.tasks[0]!.status = "approved"
+    expect(pendingPlanReviewTasks(plan)).toEqual([])
+    expect(shouldWaitForPlanReport({ plan })).toBe(true)
+  })
+
+  it("does not treat candidate proposals as independent standard reviews", () => {
+    expect(pendingPlanReviewTasks({
+      current_step: "s1",
+      steps: [{ id: "s1", tasks: [
+        { id: "s1_t1", mode: "candidate", status: "reported", done_criteria: "x", output_path: "x.md" },
+      ] }],
+    })).toEqual([])
   })
 
   it("publishes complete nested schemas for progressive plans and all update operations", () => {

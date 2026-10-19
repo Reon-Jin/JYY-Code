@@ -162,6 +162,23 @@ describe("CatalogSearch", () => {
     expect(results[0]?.tool.id).toBe("symbol_search")
   })
 
+  it("never surfaces runtime plumbing as a search result", () => {
+    const tools = [
+      tool({
+        id: "invalid",
+        description: "Report invalid input from a malformed tool call so the model can repair it",
+      }),
+      tool({
+        id: "tool_search",
+        description: "Search the tool catalog for relevant tools",
+      }),
+      tool({ id: "read", description: "Read a local file" }),
+    ]
+
+    expect(CatalogSearch.search({ query: "invalid input", tools }).map((item) => item.tool.id)).toEqual([])
+    expect(CatalogSearch.search({ query: "catalog search", tools }).map((item) => item.tool.id)).toEqual([])
+  })
+
   it("keeps deterministic tool search eval fixtures meaningful", () => {
     const evalTools = [
       tool({

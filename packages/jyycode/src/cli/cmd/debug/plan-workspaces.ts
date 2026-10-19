@@ -8,6 +8,7 @@ import { Database } from "@/storage/db"
 import { eq } from "@/storage/db"
 import { ProjectID } from "@/project/schema"
 import { SessionTable } from "@/session/session.sql"
+import { snapshotProjectKey, snapshotRuntimeRoot } from "@/plan/workspace-storage"
 import {
   applyWorkspaceMigration,
   inspectWorkspaceStorage,
@@ -80,7 +81,9 @@ function sessionContext() {
 function roots(project: string, legacyRoot: string | undefined, runtimeOverride?: string) {
   const runtimeRoot = runtimeOverride
     ? path.resolve(runtimeOverride)
-    : path.join(Global.Path.data, "plan-workspaces", project)
+    : /^[a-f0-9]{24}$/.test(project)
+      ? path.join(Global.Path.data, "plan-workspaces", "projects", project)
+      : path.join(Global.Path.data, "plan-workspaces", project)
   const legacyRoots = new Set<string>()
   if (project === "global") legacyRoots.add(path.join(Global.Path.data, "global"))
   if (legacyRoot) legacyRoots.add(path.resolve(legacyRoot))
@@ -94,13 +97,18 @@ const InspectCommand = effectCmd({
   builder: (yargs: Argv) =>
     yargs
       .option("project", { type: "string", default: "global", description: "project storage namespace" })
+      .option("directory", { type: "string", description: "source project directory for isolated snapshot storage" })
       .option("root", { type: "string", description: "runtime root override for diagnostics/tests" })
       .option("json", { type: "boolean", default: false, description: "write machine-readable JSON" })
       .option("show-paths", { type: "boolean", default: false, description: "include absolute filesystem paths" }),
   handler: Effect.fn("Cli.debug.planWorkspaces.inspect")(function* (args) {
-    const project = safeProject(args.project)
+    const project = args.directory ? snapshotProjectKey(args.directory) : safeProject(args.project)
     const config = yield* Config.Service.use((service) => service.get())
-    const pathConfig = roots(project, config.workspace_cleanup?.legacy_root, args.root)
+    const pathConfig = roots(
+      project,
+      config.workspace_cleanup?.legacy_root,
+      args.root ?? (args.directory ? snapshotRuntimeRoot(Global.Path.data, args.directory) : undefined),
+    )
     const context = sessionContext()
     const report = yield* Effect.tryPromise({
       try: () =>
@@ -124,6 +132,7 @@ const CleanupCommand = effectCmd({
   builder: (yargs: Argv) =>
     yargs
       .option("project", { type: "string", default: "global", description: "project storage namespace" })
+      .option("directory", { type: "string", description: "source project directory for isolated snapshot storage" })
       .option("root", { type: "string", description: "runtime root override for diagnostics/tests" })
       .option("dry-run", {
         type: "boolean",
@@ -137,9 +146,13 @@ const CleanupCommand = effectCmd({
       .option("json", { type: "boolean", default: false, description: "write machine-readable JSON" })
       .option("show-paths", { type: "boolean", default: false, description: "include absolute filesystem paths" }),
   handler: Effect.fn("Cli.debug.planWorkspaces.cleanup")(function* (args) {
-    const project = safeProject(args.project)
+    const project = args.directory ? snapshotProjectKey(args.directory) : safeProject(args.project)
     const config = yield* Config.Service.use((service) => service.get())
-    const pathConfig = roots(project, config.workspace_cleanup?.legacy_root, args.root)
+    const pathConfig = roots(
+      project,
+      config.workspace_cleanup?.legacy_root,
+      args.root ?? (args.directory ? snapshotRuntimeRoot(Global.Path.data, args.directory) : undefined),
+    )
     const context = sessionContext()
     const base = {
       project,

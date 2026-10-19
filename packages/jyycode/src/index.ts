@@ -44,11 +44,10 @@ import { LLMTrace } from "@/dev/llm-trace"
 import { drizzle } from "drizzle-orm/bun-sqlite"
 import { ensureProcessMetadata } from "@jyycode-ai/core/util/jyycode-process"
 import { isRecord } from "@/util/record"
-import path from "node:path"
-import { WorkspaceSweeper } from "./plan/workspace-sweeper"
+import { PlanWorkspaceMaintenance } from "./plan/workspace-maintenance"
 
 const processMetadata = ensureProcessMetadata("main")
-let planWorkspaceSweeper: WorkspaceSweeper | undefined
+let planWorkspaceSweeper: PlanWorkspaceMaintenance | undefined
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -175,9 +174,7 @@ const cli = yargs(args)
     }
 
     try {
-      planWorkspaceSweeper = new WorkspaceSweeper({
-        runtimeRoot: path.join(Global.Path.data, "plan-workspaces", "global"),
-      }).start()
+      planWorkspaceSweeper = new PlanWorkspaceMaintenance({ dataRoot: Global.Path.data }).start()
     } catch (error) {
       Log.Default.warn("plan workspace sweeper skipped", {
         error: errorMessage(error),

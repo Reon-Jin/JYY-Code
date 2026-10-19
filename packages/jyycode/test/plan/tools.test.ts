@@ -21,6 +21,8 @@ import { testEffect } from "../lib/effect"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { Global } from "@jyycode-ai/core/global"
+import { snapshotRuntimeRoot } from "../../src/plan/workspace-storage"
 
 const it = testEffect(Layer.mergeAll(Bus.layer, CrossSpawnSpawner.defaultLayer))
 
@@ -39,13 +41,13 @@ describe("plan runtime event bridge", () => {
         vcs: undefined,
       } as never
 
-      expect(
-        childWorkspaceFor({
-          session,
-          projectInfo,
-          bridge: {} as EffectBridge.Shape,
-        }),
-      ).toBeDefined()
+      const manager = childWorkspaceFor({
+        session,
+        projectInfo,
+        bridge: {} as EffectBridge.Shape,
+      })
+      expect(manager).toBeDefined()
+      expect(manager!.reserve("ses_main", "s1_t1").directory).toStartWith(snapshotRuntimeRoot(Global.Path.data, root))
 
       fs.rmSync(root, { recursive: true, force: true })
     }),

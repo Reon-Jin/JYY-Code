@@ -11,6 +11,7 @@ import {
 import { leaseIsExpired, leaseIsRetained, readWorkspaceLease, type WorkspaceLease } from "./workspace-lease"
 import { assertManifestIdentity, assertRuntimePath, canonicalPath } from "./workspace-path"
 import { readPlanFileSync, type PlanFile, type PlanTask } from "./schema"
+import { directoryBytes } from "./workspace-budget"
 
 const log = Log.create({ service: "workspace-sweeper" })
 
@@ -173,6 +174,7 @@ export type WorkspaceSweeperOptions = {
   runtimeRoot: string
   /** Unknown liveness is not evidence of safe deletion. Opt in only after review. */
   allowOrphanQuarantine?: boolean
+  purgeQuarantine?: boolean
   now?: () => number
   maxItemsPerScan?: number
   scanBudgetMs?: number
@@ -238,18 +240,20 @@ function cleanupId(input: { root: string; directory: string; lease?: WorkspaceLe
   return `pw_${createHash("sha256").update(identity).digest("hex").slice(0, 20)}`
 }
 
-function planTaskIsActive(task: PlanTask) {
-  if (task.merge?.status === "merged") return false
+function planTaskIsActive(task: PlanTask, planUpdatedAt: string, now: number) {
+  if (task.merge?.status === "merged" || task.dispatch?.cancelled_at) return false
+  if ((task.status === "rejected" || task.status === "pending") && task.report?.review_feedback) return true
+  if (task.status === "rejected") {
+    const failedAt = Date.parse(task.report?.reported_at ?? planUpdatedAt)
+    return !Number.isFinite(failedAt) || now < failedAt + WORKSPACE_RETENTION_DEFAULTS.retainedFailureMs
+  }
   return (
     task.status === "dispatched" ||
     task.status === "running" ||
     task.status === "reported" ||
     task.status === "approved" ||
-    (task.merge !== undefined &&
-      (task.merge.status === "pending" ||
-        task.merge.status === "running" ||
-        task.merge.status === "conflict" ||
-        task.merge.cleanup !== "completed"))
+    task.merge?.status === "running" ||
+    task.merge?.status === "conflict"
   )
 }
 
@@ -279,14 +283,20 @@ function isPathInside(root: string, target: string) {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
 }
 
-function collectPlanReferences(planRoots: readonly string[], runtimeRoots: readonly string[]) {
+export function collectPlanReferences(
+  planRoots: readonly string[],
+  runtimeRoots: readonly string[],
+  strict = false,
+  now = Date.now(),
+) {
   const references = new Map<string, PlanReference>()
   for (const workspaceRoot of planRoots) {
     const planRoot = path.join(path.resolve(workspaceRoot), ".jyycode", "plan")
     let sessions: fs.Dirent[]
     try {
       sessions = fs.readdirSync(planRoot, { withFileTypes: true })
-    } catch {
+    } catch (error) {
+      if (strict && !(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error
       continue
     }
     for (const session of sessions) {
@@ -295,12 +305,13 @@ function collectPlanReferences(planRoots: readonly string[], runtimeRoots: reado
       let plan: PlanFile | null
       try {
         plan = readPlanFileSync(planPath)
-      } catch {
+      } catch (error) {
+        if (strict) throw error
         continue
       }
       if (!plan) continue
       for (const task of plan.steps.flatMap((step) => step.tasks)) {
-        const active = planTaskIsActive(task)
+        const active = planTaskIsActive(task, plan.updated_at, now)
         const reference: PlanReference = {
           active,
           terminal: !active,
@@ -533,7 +544,7 @@ export async function inspectWorkspaceStorage(input: WorkspaceInventoryOptions):
   fs.mkdirSync(runtimeRoot, { recursive: true })
   const now = inventoryNow(input)
   const maxEntries = input.maxEntries ?? WORKSPACE_RETENTION_DEFAULTS.inventoryMaxEntries
-  const references = collectPlanReferences(input.planRoots ?? [], roots)
+  const references = collectPlanReferences(input.planRoots ?? [], roots, false, now)
   const sessionIds = new Set(input.sessionIds ?? [])
   const categories = {
     active: [],
@@ -731,6 +742,8 @@ export async function purgeExpiredWorkspaceQuarantine(input: {
   now?: number
   quarantineMs?: number
   maxItems?: number
+  protectedPaths?: ReadonlySet<string>
+  dryRun?: boolean
 }) {
   const now = input.now ?? Date.now()
   const root = path.resolve(input.runtimeRoot)
@@ -739,14 +752,17 @@ export async function purgeExpiredWorkspaceQuarantine(input: {
   assertRuntimePath({ runtimeRoot: root, candidate: quarantineRoot, label: "workspace quarantine" })
   const removed: string[] = []
   const failures: string[] = []
-  for (const entry of fs.readdirSync(quarantineRoot, { withFileTypes: true }).slice(0, input.maxItems ?? 20)) {
+  let attempted = 0
+  for (const entry of fs.readdirSync(quarantineRoot, { withFileTypes: true })) {
     const target = path.join(quarantineRoot, entry.name)
+    if ([...(input.protectedPaths ?? [])].some((protectedPath) => isPathInside(target, protectedPath))) continue
     try {
       assertRuntimePath({ runtimeRoot: quarantineRoot, candidate: target, label: "quarantine entry" })
       const stat = fs.lstatSync(target)
       if (stat.isSymbolicLink()) continue
       if (now - stat.mtimeMs < (input.quarantineMs ?? WORKSPACE_RETENTION_DEFAULTS.quarantineMs)) continue
-      await fs.promises.rm(target, { recursive: true, force: true })
+      if (attempted++ >= (input.maxItems ?? 20)) break
+      if (!input.dryRun) await fs.promises.rm(target, { recursive: true, force: true })
       removed.push(target)
     } catch {
       failures.push(target)
@@ -809,22 +825,7 @@ async function defaultQuarantine(candidate: WorkspaceSweepCandidate, now = Date.
 }
 
 export async function directorySize(root: string, limit = Number.MAX_SAFE_INTEGER) {
-  let total = 0
-  async function walk(current: string): Promise<void> {
-    if (total >= limit) return
-    for (const entry of await fs.promises.readdir(current, { withFileTypes: true })) {
-      if (total >= limit) return
-      const pathname = path.join(current, entry.name)
-      if (entry.isDirectory()) await walk(pathname)
-      else if (entry.isFile()) total += (await fs.promises.stat(pathname)).size
-    }
-  }
-  try {
-    await walk(root)
-  } catch {
-    return total
-  }
-  return total
+  return directoryBytes(root, limit)
 }
 
 export async function runtimeUsageBytes(runtimeRoot: string, limit = Number.MAX_SAFE_INTEGER) {
@@ -849,6 +850,7 @@ export class WorkspaceSweeper {
   private readonly sessionState?: WorkspaceSweeperOptions["sessionState"]
   private readonly planState?: WorkspaceSweeperOptions["planState"]
   private readonly allowOrphanQuarantine: boolean
+  private readonly purgeQuarantine: boolean
   private readonly remove: NonNullable<WorkspaceSweeperOptions["remove"]>
   private readonly quarantine: NonNullable<WorkspaceSweeperOptions["quarantine"]>
   private queue: Queue
@@ -868,6 +870,7 @@ export class WorkspaceSweeper {
     this.sessionState = input.sessionState
     this.planState = input.planState
     this.allowOrphanQuarantine = input.allowOrphanQuarantine === true
+    this.purgeQuarantine = input.purgeQuarantine !== false
     this.remove = input.remove ?? defaultRemove
     this.quarantine = input.quarantine ?? ((candidate) => defaultQuarantine(candidate, this.now()))
     this.queue = loadQueue(this.runtimeRoot)
@@ -969,12 +972,7 @@ export class WorkspaceSweeper {
         continue
       }
       if (session === "unknown" || plan === "unknown") {
-        if (
-          !this.allowOrphanQuarantine ||
-          session !== "unknown" ||
-          plan !== "unknown" ||
-          this.now() < Date.parse(lease.expires_at) + this.orphanGraceMs
-        ) {
+        if (!this.allowOrphanQuarantine || this.now() < Date.parse(lease.expires_at) + this.orphanGraceMs) {
           result.preserved.push(candidate.workspaceDirectory)
           continue
         }
@@ -1023,7 +1021,7 @@ export class WorkspaceSweeper {
           message: cleanup.record.last_error?.message ?? cleanup.record.state,
         })
     }
-    if (!input.dryRun && this.allowOrphanQuarantine) {
+    if (!input.dryRun && this.allowOrphanQuarantine && this.purgeQuarantine) {
       await purgeExpiredWorkspaceQuarantine({
         runtimeRoot: this.runtimeRoot,
         now: this.now(),

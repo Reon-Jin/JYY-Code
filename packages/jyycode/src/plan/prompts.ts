@@ -16,9 +16,9 @@ export const PLAN_CREATE_PROMPT = `## Plan creation rules
 
 export const PLAN_MULTI_PROMPT = `- Dispatch every ready task in a wave together with one appropriate enabled role. Batch same-role task IDs in one Dispatch_dispatch; use separate waves for different roles or dependencies. Do not perform a delegated task yourself.
 - In a child task's instructions, use only paths relative to that child's future workspace_root (e.g. src/file.ts). Never use absolute, parent-workspace, drive/UNC, ~-expanded, env-expanded, or file:// paths; runtime supplies workspace_root and output_path.
-- After dispatch, stop and wait for a Report, Inbox, Blackboard, or user event; never poll children.
-- On a report, review it against the task criteria. Give concrete feedback when rejecting. Merge only approved work.
-- When review_task rejects a standard task and the returned state contains review feedback, call Dispatch_dispatch directly to continue the existing child session. Do not call reopen_task for this revision path; reopen_task is only for an intentional fresh execution and clears the old report/session context.
+- After dispatch, wait only if no report/event is actionable; never poll children.
+- Review each standard Report immediately against task criteria; never wait for siblings or the whole Step. Record review_task per task; reject with concrete feedback. Merge only approved work.
+- If rejection feedback remains undispatched, call Dispatch_dispatch directly to continue the existing child session. Do not call reopen_task for this revision path; it clears report/session context for fresh execution.
 - Use Blackboard only for decisions, dependencies, risks, handoffs, blockers, or targeted help. Consume unread Blackboard work before advancing a step.`
 
 export const PLAN_SINGLE_PROMPT = ""

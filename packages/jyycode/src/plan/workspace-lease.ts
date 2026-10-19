@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
-import { assertRuntimePath, canonicalPath } from "./workspace-path"
+import { assertRuntimePath, canonicalPath, isPathInside } from "./workspace-path"
 
 export const WORKSPACE_LEASE_SCHEMA_VERSION = 1 as const
 export const DEFAULT_WORKSPACE_LEASE_TTL_MS = 2 * 60 * 1_000
@@ -94,25 +94,39 @@ export class WorkspaceLeaseStore {
   readonly runtimeRoot: string
   readonly ttlMs: number
   readonly now: () => number
+  private readonly legacyRuntimeRoots: readonly string[]
 
-  constructor(input: { runtimeRoot: string; ttlMs?: number; now?: () => number }) {
+  constructor(input: {
+    runtimeRoot: string
+    legacyRuntimeRoots?: readonly string[]
+    ttlMs?: number
+    now?: () => number
+  }) {
     this.runtimeRoot = path.resolve(input.runtimeRoot)
     this.ttlMs = input.ttlMs ?? DEFAULT_WORKSPACE_LEASE_TTL_MS
     this.now = input.now ?? Date.now
+    this.legacyRuntimeRoots = input.legacyRuntimeRoots ?? []
     fs.mkdirSync(this.runtimeRoot, { recursive: true })
   }
 
   path(workspaceDirectory: string) {
-    const canonical = canonicalLeaseWorkspace({ runtimeRoot: this.runtimeRoot, workspaceDirectory })
+    const runtimeRoot = this.rootFor(workspaceDirectory)
+    const canonical = canonicalLeaseWorkspace({ runtimeRoot, workspaceDirectory })
     const leasePath = workspaceLeasePath(canonical)
-    assertRuntimePath({ runtimeRoot: this.runtimeRoot, candidate: leasePath, label: "workspace lease file" })
+    assertRuntimePath({ runtimeRoot, candidate: leasePath, label: "workspace lease file" })
     return leasePath
+  }
+
+  private rootFor(directory: string) {
+    return (
+      [this.runtimeRoot, ...this.legacyRuntimeRoots].find((root) => isPathInside(root, directory)) ?? this.runtimeRoot
+    )
   }
 
   create(input: WorkspaceLeaseInput) {
     const now = input.now ?? this.now()
     const workspaceDirectory = canonicalLeaseWorkspace({
-      runtimeRoot: this.runtimeRoot,
+      runtimeRoot: this.rootFor(input.workspace_directory),
       workspaceDirectory: input.workspace_directory,
     })
     const lease: WorkspaceLease = {
@@ -160,6 +174,22 @@ export class WorkspaceLeaseStore {
     } catch {
       return false
     }
+  }
+
+  finish(workspaceDirectory: string, state: NonNullable<WorkspaceLease["terminal_state"]>, retentionMs: number) {
+    const pathname = this.path(workspaceDirectory)
+    const existing = readWorkspaceLease(pathname)
+    if (!existing) return undefined
+    if (existing.terminal_state && existing.retention_until) return existing
+    const now = this.now()
+    const next = {
+      ...existing,
+      terminal_state: state,
+      expires_at: new Date(now).toISOString(),
+      retention_until: new Date(now + retentionMs).toISOString(),
+    }
+    atomicWrite(pathname, next)
+    return next
   }
 }
 

@@ -111,6 +111,7 @@ export class ChildWorkspaceError extends Error {
 type ChildWorkspaceOptions = {
   project: ChildWorkspaceProject
   runtimeRoot: string
+  legacyRuntimeRoots?: readonly string[]
   worktree?: WorktreeAdapter
   now?: () => number
   snapshotLimits?: Partial<SnapshotLimits>
@@ -652,6 +653,7 @@ export class ChildWorkspace {
   private readonly snapshotInclude: readonly string[]
   private readonly workspaceBudget: { softLimitBytes?: number; hardLimitBytes?: number }
   private readonly reservations = new Map<string, WorkspaceHandle | WorkspaceReservation>()
+  private readonly legacyWorkspaces: Map<string, ChildWorkspace>
   private readonly pendingBaselines = new Map<string, { directory: string; manifest: SnapshotManifest }>()
   private readonly baselineOperations = new Map<
     string,
@@ -675,6 +677,14 @@ export class ChildWorkspace {
     this.snapshotInclude = options.snapshotInclude ?? []
     this.workspaceBudget = options.workspaceBudget ?? {}
     fs.mkdirSync(this.runtimeRoot, { recursive: true })
+    this.legacyWorkspaces = new Map(
+      (options.legacyRuntimeRoots ?? [])
+        .filter((root) => fs.existsSync(root) && path.resolve(root) !== this.runtimeRoot)
+        .map((runtimeRoot) => [
+          path.resolve(runtimeRoot),
+          new ChildWorkspace({ ...options, runtimeRoot, legacyRuntimeRoots: [] }),
+        ]),
+    )
   }
 
   capability(project = this.project): ChildWorkspaceMode {
@@ -729,7 +739,8 @@ export class ChildWorkspace {
     )
   }
 
-  async preflight(reservations: readonly WorkspaceReservation[]) {
+  async preflight(reservations: readonly WorkspaceReservation[], signal?: AbortSignal) {
+    signal?.throwIfAborted()
     const isolated = reservations.filter((reservation) => reservation.mode !== "shared_compat")
     if (isolated.length === 0) return undefined
     const snapshots = isolated.filter((reservation) => reservation.mode === "snapshot")
@@ -749,6 +760,7 @@ export class ChildWorkspace {
           manifest,
           taskCount: snapshots.length,
           ...this.workspaceBudget,
+          signal,
         })
       } catch (error) {
         // A rejected dispatch must not leave the scan cache behind.
@@ -1003,6 +1015,15 @@ export class ChildWorkspace {
   }
 
   load(reservation: WorkspaceReservation, options: { forCleanup?: boolean } = {}): WorkspaceHandle | undefined {
+    if (
+      reservation.mode !== "shared_compat" &&
+      reservation.directory &&
+      !isInside(this.runtimeRoot, reservation.directory)
+    ) {
+      for (const [root, manager] of this.legacyWorkspaces)
+        if (isInside(root, reservation.directory)) return manager.load(reservation, options)
+      return undefined
+    }
     if (reservation.mode === "shared_compat") {
       const handle = {
         ...reservation,
@@ -1159,7 +1180,11 @@ export class ChildWorkspace {
     return false
   }
 
-  async remove(directory: string, guard?: WorkspaceRemovalGuard) {
+  async remove(directory: string, guard?: WorkspaceRemovalGuard): Promise<boolean> {
+    if (!isInside(this.runtimeRoot, directory)) {
+      for (const [root, manager] of this.legacyWorkspaces)
+        if (isInside(root, directory)) return manager.remove(directory, guard)
+    }
     if (guard && !(await guard.canRemove()))
       throw new ChildWorkspaceError(guard.reason ?? "拒绝清理仍由活动 child 使用的 workspace", {
         directory,
@@ -1293,6 +1318,7 @@ export class ChildWorkspace {
         if (fs.existsSync(manifest)) fs.rmSync(manifest, { force: true })
       }
       if (match) this.reservations.delete(match[0])
+      fs.rmSync(path.join(this.runtimeRoot, `${entry.name}.lease.json`), { force: true })
       return true
     } catch (error) {
       throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), {
