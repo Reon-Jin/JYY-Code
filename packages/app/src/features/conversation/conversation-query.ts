@@ -71,6 +71,10 @@ export function conversationQueryOptions(input: ConversationQueryInput) {
   return {
     queryKey: keys.messages(input.directory, input.sessionID),
     queryFn: ({ signal }: { signal: AbortSignal }) => loadConversation({ ...input, signal }),
+    // SSE can seed an inactive cache with only recent messages and keep it
+    // fresh indefinitely. Always reconcile history when opening or switching
+    // sessions, while retaining cached messages during the fetch.
+    staleTime: 0,
     gcTime: 60_000,
   } as const
 }

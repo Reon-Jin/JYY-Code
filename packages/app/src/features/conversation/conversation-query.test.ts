@@ -1,11 +1,53 @@
 import type { DesktopClient } from "../../data/sdk"
 import { describe, expect, it, vi } from "vitest"
-import { loadConversation } from "./conversation-query"
+import { conversationQueryOptions, loadConversation } from "./conversation-query"
 import { snapshotFromMessages, type ConversationMessage } from "./conversation-state"
 import { createDesktopQueryClient } from "../../data/query-client"
 import { keys } from "../../data/query-keys"
+import { QueryObserver } from "@tanstack/solid-query"
+
+function userMessage(id: string, sessionID: string, created: number): ConversationMessage {
+  return {
+    info: { id, sessionID, role: "user", time: { created }, agent: "build", model: { providerID: "test", modelID: "test" } },
+    parts: [{ id: `part_${id}`, messageID: id, sessionID, type: "text", text: id }],
+  }
+}
 
 describe("loadConversation", () => {
+  it.each([false, true])("loads full history from a fresh event-only cache (switching=%s)", async (switching) => {
+    const directory = "C:\\work"
+    const sessionID = "ses_history"
+    const queryClient = createDesktopQueryClient()
+    const earlier = userMessage("earlier", sessionID, 1)
+    const recent = userMessage("recent", sessionID, 2)
+    const key = keys.messages(directory, sessionID)
+    const partial = snapshotFromMessages(sessionID, [recent])
+    queryClient.setQueryData(key, partial)
+    // An inactive stream cache is initially invalidated; subsequent SSE writes
+    // mark it fresh again even though it has never loaded persisted history.
+    await queryClient.invalidateQueries({ queryKey: key, exact: true })
+    queryClient.setQueryData(key, { ...partial })
+    const client = {
+      session: { messages: vi.fn(async () => ({ data: [earlier, recent] })) },
+    } as unknown as DesktopClient
+    const options = conversationQueryOptions({ client, directory, sessionID, queryClient })
+    const observer = new QueryObserver(
+      queryClient,
+      switching ? { ...options, queryKey: keys.messages(directory, "ses_other"), enabled: false } : options,
+    )
+    const unsubscribe = observer.subscribe(() => {})
+    try {
+      if (switching) observer.setOptions(options)
+      await vi.waitFor(() => expect(client.session.messages).toHaveBeenCalledTimes(1))
+      await vi.waitFor(() =>
+        expect(observer.getCurrentResult().data?.messages.map((message) => message.info.id)).toEqual(["earlier", "recent"]),
+      )
+    } finally {
+      unsubscribe()
+      queryClient.clear()
+    }
+  })
+
   it("accepts authoritative screenshot removal instead of treating every cached tool as newer", async () => {
     const message = { info: { id: "m", sessionID: "s", role: "assistant", time: { created: 1 } },
       parts: [{ id: "p", messageID: "m", sessionID: "s", type: "tool", tool: "computer", callID: "c",
