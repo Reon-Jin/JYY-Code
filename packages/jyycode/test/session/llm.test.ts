@@ -810,6 +810,94 @@ describe("session.llm.stream", () => {
     },
   )
 
+  for (const count of [1, 15]) {
+    it.instance(
+      `normalizes tall DeepSeek screenshots to the ${count >= 15 ? 4096 : 8192}px request limit (${count} images)`,
+      Effect.gen(function* () {
+        const photon = yield* Effect.promise(() => import("@silvia-odwyer/photon-node"))
+        const source = new photon.PhotonImage(new Uint8Array(195 * 11000 * 4).fill(255), 195, 11000)
+        const original = Buffer.from(source.get_bytes())
+        source.free()
+        const fixture = loadFixture("deepseek", "deepseek-v4-flash")
+        const request = waitRequest(
+          "/chat/completions",
+          new Response(createChatStream("ready"), {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }),
+        )
+        const resolved = yield* Provider.use.getModel(ProviderID.make("deepseek"), ModelID.make(fixture.model.id))
+        const sessionID = SessionID.make(`session-deepseek-tall-${count}`)
+        const agent = {
+          name: "test",
+          mode: "subagent",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+        yield* drain({
+          user: {
+            id: MessageID.make(`msg_deepseek-tall-${count}`),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: agent.name,
+            model: { providerID: resolved.providerID, modelID: resolved.id },
+          },
+          sessionID,
+          model: {
+            ...resolved,
+            capabilities: { ...resolved.capabilities, input: { ...resolved.capabilities.input, image: true } },
+          },
+          agent,
+          system: [],
+          messages: [
+            {
+              role: "user",
+              content: Array.from({ length: count }, () => ({
+                type: "image" as const,
+                image: `data:image/png;base64,${original.toString("base64")}`,
+              })),
+            },
+          ],
+          tools: {},
+        })
+        const body = (yield* Effect.promise(() => request)).body
+        const messages = body.messages as { content: string | { type: string; image_url?: { url: string } }[] }[]
+        const images = messages.flatMap((message) =>
+          Array.isArray(message.content)
+            ? message.content.flatMap((part) => part.type === "image_url" && part.image_url ? [part.image_url] : [])
+            : [],
+        )
+        expect(images).toHaveLength(count)
+        for (const image of images) {
+          expect(image.url).toStartWith("data:image/png;base64,")
+          const bytes = Buffer.from(image.url.split(",")[1], "base64")
+          expect(bytes.readUInt32BE(20)).toBeLessThanOrEqual(count >= 15 ? 4096 : 8192)
+          expect(bytes.readUInt32BE(16)).toBeGreaterThanOrEqual(count >= 15 ? 70 : 140)
+        }
+        expect(original.readUInt32BE(20)).toBe(11000)
+      }),
+      {
+        config: () => {
+          const fixture = loadFixture("deepseek", "deepseek-v4-flash")
+          return {
+            enabled_providers: ["deepseek"],
+            provider: {
+              deepseek: {
+                name: "DeepSeek",
+                env: ["DEEPSEEK_API_KEY"],
+                npm: "@ai-sdk/openai-compatible",
+                api: "https://api.deepseek.com/v1",
+                models: { [fixture.model.id]: configModel(fixture.model) as ConfigModel },
+                options: { apiKey: "test-deepseek-key", baseURL: `${state.server!.url.origin}/v1` },
+              },
+            },
+          }
+        },
+      },
+    )
+  }
+
   it.instance(
     "prompts the first DeepSeek V4 desktop action without excluding other tools",
     Effect.gen(function* () {

@@ -214,6 +214,119 @@ const boot = Effect.fn("test.boot")(function* () {
 // Tests
 // ---------------------------------------------------------------------------
 
+for (const mode of ["recover", "failed-retry", "balance", "after-output"] as const) {
+  it.live(`image input recovery: ${mode}`, () =>
+    provideTmpdirServer(
+      ({ dir, llm }) =>
+        Effect.gen(function* () {
+          const { processors, session, provider } = yield* boot()
+          const imageError = "You have uploaded an unsupported image. Please provide a valid image."
+          if (mode === "after-output")
+            yield* llm.push(
+              raw({
+                chunks: [
+                  {
+                    id: "chatcmpl-image",
+                    object: "chat.completion.chunk",
+                    choices: [{ delta: { content: "Partial answer" } }],
+                  },
+                  { error: { message: imageError, type: "invalid_request_error", code: "invalid_image" } },
+                ],
+              }),
+            )
+          else
+            yield* llm.error(mode === "balance" ? 402 : 400, {
+              error: { message: mode === "balance" ? "Insufficient Balance" : imageError },
+            })
+          if (mode === "recover") yield* llm.tool("continue_work", { action: "finish" })
+          if (mode === "failed-retry") yield* llm.error(400, { error: { message: imageError } })
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "Finish the webpage")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const configured = yield* provider.getModel(ref.providerID, ref.modelID)
+          const mdl = {
+            ...configured,
+            capabilities: { ...configured.capabilities, input: { ...configured.capabilities.input, image: true } },
+          }
+          const imageRecovery = { omitImages: false }
+          let executions = 0
+          const input = {
+            user: parent,
+            sessionID: chat.id,
+            model: mdl,
+            agent: { ...agent(), mode: "subagent" },
+            system: [],
+            imageRecovery,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: "Finish and check existing files" },
+                  {
+                    type: "image",
+                    image: "data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA",
+                  },
+                ],
+              },
+              {
+                role: "assistant",
+                content: [{ type: "tool-call", toolCallId: "earlier-read", toolName: "read", input: {} }],
+              },
+              {
+                role: "tool",
+                content: [
+                  {
+                    type: "tool-result",
+                    toolCallId: "earlier-read",
+                    toolName: "read",
+                    output: { type: "text", value: "Existing webpage is preserved" },
+                  },
+                ],
+              },
+            ],
+            tools: {
+              continue_work: tool({
+                inputSchema: z.object({ action: z.string() }),
+                execute: async () => {
+                  executions++
+                  return "Finished existing work"
+                },
+              }),
+            },
+          } satisfies LLM.StreamInput
+          const handle = yield* processors.create({ assistantMessage: msg, sessionID: chat.id, model: mdl })
+          const result = yield* handle.process(input)
+          const inputs = yield* llm.inputs
+          if (mode === "recover") {
+            expect(result).toBe("continue")
+            expect(handle.message.error).toBeUndefined()
+            expect(executions).toBe(1)
+            expect(inputs).toHaveLength(2)
+            expect(imageRecovery.omitImages).toBe(true)
+            expect(JSON.stringify(inputs[0])).toContain("image_url")
+            expect(JSON.stringify(inputs[1])).not.toContain("data:image/")
+            expect(JSON.stringify(inputs[1])).toContain("Existing webpage is preserved")
+            expect(JSON.stringify(inputs[1])).toContain("Do not repeatedly read the same images")
+            // The next model step shares the run state and must not resubmit rejected images.
+            yield* llm.text("Continued using source and DOM checks")
+            const next = yield* assistant(chat.id, parent.id, path.resolve(dir))
+            const nextHandle = yield* processors.create({ assistantMessage: next, sessionID: chat.id, model: mdl })
+            expect(yield* nextHandle.process(input)).toBe("continue")
+            const followup = yield* llm.inputs
+            expect(followup).toHaveLength(3)
+            expect(JSON.stringify(followup[2])).not.toContain("data:image/")
+          } else {
+            expect(result).toBe("stop")
+            expect(executions).toBe(0)
+            expect(inputs).toHaveLength(mode === "failed-retry" ? 2 : 1)
+            expect(imageRecovery.omitImages).toBe(mode === "failed-retry")
+          }
+        }),
+      { config: (url) => providerCfg(url) },
+    ),
+  )
+}
+
 it.live("session.processor effect tests capture llm input cleanly", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

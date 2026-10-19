@@ -52,7 +52,10 @@ export class SizeError extends Schema.TaggedErrorClass<SizeError>()("ImageSizeEr
 export type Error = ResizerUnavailableError | InvalidDataUrlError | DecodeError | SizeError
 
 export interface Interface {
-  readonly normalize: (input: MessageV2.FilePart) => Effect.Effect<MessageV2.FilePart, Error>
+  readonly normalize: (
+    input: MessageV2.FilePart,
+    limits?: { maxWidth: number; maxHeight: number },
+  ) => Effect.Effect<MessageV2.FilePart, Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/Image") {}
@@ -73,12 +76,15 @@ export const layer = Layer.effect(
       ),
     )
 
-    const normalize = Effect.fn("Image.normalize")(function* (input: MessageV2.FilePart) {
+    const normalize = Effect.fn("Image.normalize")(function* (
+      input: MessageV2.FilePart,
+      limits?: { maxWidth: number; maxHeight: number },
+    ) {
       const image = (yield* config.get()).attachment?.image
       const info = {
         autoResize: image?.auto_resize ?? AUTO_RESIZE,
-        maxWidth: image?.max_width ?? MAX_WIDTH,
-        maxHeight: image?.max_height ?? MAX_HEIGHT,
+        maxWidth: Math.min(image?.max_width ?? limits?.maxWidth ?? MAX_WIDTH, limits?.maxWidth ?? Infinity),
+        maxHeight: Math.min(image?.max_height ?? limits?.maxHeight ?? MAX_HEIGHT, limits?.maxHeight ?? Infinity),
         maxBase64Bytes: image?.max_base64_bytes ?? MAX_BASE64_BYTES,
       }
       if (!input.url.startsWith("data:") || !input.url.includes(";base64,"))

@@ -17,7 +17,9 @@ import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { Bus } from "@/bus"
 import { Wildcard } from "@/util/wildcard"
-import { SessionID } from "@/session/schema"
+import { SessionID, PartID } from "@/session/schema"
+import { Image } from "@/image/image"
+import { LLMImageInput } from "./llm/image-input"
 import { Auth } from "@/auth"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -57,6 +59,8 @@ export type StreamInput = {
   tools: Record<string, Tool>
   retries?: number
   toolChoice?: ToolChoice
+  /** Recovery is scoped to this prompt run, never to the model's vision capability. */
+  imageRecovery?: { omitImages: boolean }
 }
 
 export type StreamRequest = StreamInput & {
@@ -77,6 +81,7 @@ const live: Layer.Layer<
   | Auth.Service
   | Config.Service
   | Provider.Service
+  | Image.Service
   | Plugin.Service
   | Permission.Service
   | LLMClientService
@@ -97,6 +102,7 @@ const live: Layer.Layer<
     const blobStore = yield* BlobStore.Service
     const events = yield* EventRuntime.Service
     const credentials = yield* Credential.Service
+    const image = yield* Image.Service
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
       const l = log
@@ -132,11 +138,31 @@ const live: Layer.Layer<
         isWorkflow,
         toolChoice: input.toolChoice,
       })
+      // DeepSeek lowers its 8192px limit to 4096px at 15 images. Use the
+      // provider's actual ceiling so long screenshots retain readable detail.
+      const deepseek = `${input.model.providerID}/${input.model.api.id}`.toLowerCase().includes("deepseek")
+      const imageEdge = LLMImageInput.imageCount(prepared.messages) >= 15 ? 4096 : 8192
+      prepared.messages = yield* LLMImageInput.prepareImages(
+        prepared.messages,
+        (attachment) =>
+          image.normalize(
+            {
+              ...attachment,
+              type: "file",
+              id: PartID.ascending(),
+              messageID: input.user.id,
+              sessionID: SessionID.make(input.sessionID),
+            },
+            deepseek ? { maxWidth: imageEdge, maxHeight: imageEdge } : undefined,
+          ),
+        input.imageRecovery?.omitImages,
+      )
       const modelVisibleMessages = ProviderTransform.message(
         structuredClone(prepared.messages),
         input.model,
         prepared.messageTransformOptions,
       )
+      const containsImages = LLMImageInput.hasImages(modelVisibleMessages)
       const persistRequestEnvelope = Effect.fn("LLM.persistRequestEnvelope")(function* (runtime: "ai-sdk" | "native") {
         const artifact = createRequestEnvelope({
           sessionID: SessionID.make(input.sessionID),
@@ -310,6 +336,7 @@ const live: Layer.Layer<
           )
           return {
             type: "native" as const,
+            containsImages,
             stream: native.stream,
             trace: LLMTrace.start({
               sessionID: input.sessionID,
@@ -378,6 +405,7 @@ const live: Layer.Layer<
       // LLMAISDK.toLLMEvents below normalizes fullStream parts for the processor.
       return {
         type: "ai-sdk" as const,
+        containsImages,
         result: streamText({
           onError(error) {
             l.error("stream error", {
@@ -468,34 +496,59 @@ const live: Layer.Layer<
       }
     })
 
-    const stream: Interface["stream"] = (input) =>
-      Stream.scoped(
-        Stream.unwrap(
-          Effect.gen(function* () {
-            const ctrl = yield* Effect.acquireRelease(
-              Effect.sync(() => new AbortController()),
-              (ctrl) => Effect.sync(() => ctrl.abort()),
-            )
+    const stream: Interface["stream"] = (input) => {
+      const imageRecovery = input.imageRecovery ?? { omitImages: false }
+      let containsImages = false
+      let outputStarted = false
+      const attempt = (request: StreamInput) =>
+        Stream.scoped(
+          Stream.unwrap(
+            Effect.gen(function* () {
+              const ctrl = yield* Effect.acquireRelease(
+                Effect.sync(() => new AbortController()),
+                (ctrl) => Effect.sync(() => ctrl.abort()),
+              )
 
-            const result = yield* run({ ...input, abort: ctrl.signal })
+              const result = yield* run({ ...request, imageRecovery, abort: ctrl.signal })
+              containsImages = result.containsImages
 
-            if (result.type === "native") return LLMTrace.wrap(result.stream, result.trace)
+              if (result.type === "native") return LLMTrace.wrap(result.stream, result.trace)
 
-            // Adapter seam: both runtimes expose the same LLMEvent stream. Native
-            // already returns one; AI SDK streams are converted here.
-            const state = LLMAISDK.adapterState()
-            return LLMTrace.wrap(
-              Stream.fromAsyncIterable(result.result.fullStream, (e) =>
-                e instanceof Error ? e : new Error(String(e)),
-              ).pipe(
-                Stream.mapEffect((event) => LLMAISDK.toLLMEvents(state, event)),
-                Stream.flatMap((events) => Stream.fromIterable(events)),
-              ),
-              result.trace,
-            )
+              // Adapter seam: both runtimes expose the same LLMEvent stream. Native
+              // already returns one; AI SDK streams are converted here.
+              const state = LLMAISDK.adapterState()
+              return LLMTrace.wrap(
+                Stream.fromAsyncIterable(result.result.fullStream, (e) =>
+                  e instanceof Error ? e : new Error(String(e)),
+                ).pipe(
+                  Stream.mapEffect((event) => LLMAISDK.toLLMEvents(state, event)),
+                  Stream.flatMap((events) => Stream.fromIterable(events)),
+                ),
+                result.trace,
+              )
+            }),
+          ),
+        ).pipe(
+          Stream.mapEffect((event) => {
+            if (event.type === "provider-error") return Effect.fail(new Error(event.message))
+            if (event.type !== "step-start") outputStarted = true
+            return Effect.succeed(event)
           }),
-        ),
+        )
+      return attempt(input).pipe(
+        Stream.catch((error) => {
+          if (!containsImages || imageRecovery.omitImages || outputStarted || !LLMImageInput.isImageInputError(error))
+            return Stream.fail(error)
+          imageRecovery.omitImages = true
+          log.warn("image input rejected; retrying once without images", {
+            sessionID: input.sessionID,
+            providerID: input.model.providerID,
+            modelID: input.model.id,
+          })
+          return attempt(input)
+        }),
       )
+    }
 
     return Service.of({ stream })
   }),
@@ -506,6 +559,7 @@ export const layer = live.pipe(
   Layer.provide(BlobStore.defaultLayer),
   Layer.provide(EventRuntime.defaultLayer),
   Layer.provide(Credential.layer),
+  Layer.provide(Image.layer),
 )
 
 export const defaultLayer = Layer.suspend(() =>

@@ -16,6 +16,15 @@ const tiny = testEffect(
     ),
   ),
 )
+const largeLimits = testEffect(
+  Image.layer.pipe(
+    Layer.provide(
+      TestConfig.layer({
+        get: () => Effect.succeed({ attachment: { image: { max_width: 20000, max_height: 20000 } } }),
+      }),
+    ),
+  ),
+)
 
 function part(mime: string, data: string) {
   return {
@@ -29,6 +38,22 @@ function part(mime: string, data: string) {
 }
 
 describe("Image", () => {
+  largeLimits.effect("enforces provider dimension ceilings even with larger user limits", () =>
+    Effect.gen(function* () {
+      const photon = yield* Effect.promise(() => import("@silvia-odwyer/photon-node"))
+      const source = new photon.PhotonImage(new Uint8Array(9000 * 4).fill(255), 1, 9000)
+      const image = yield* Image.Service
+      const result = yield* image.normalize(part("image/png", Buffer.from(source.get_bytes()).toString("base64")), {
+        maxWidth: 4096,
+        maxHeight: 4096,
+      })
+      source.free()
+      expect(Buffer.from(result.url.slice(result.url.indexOf(",") + 1), "base64").readUInt32BE(20)).toBeLessThanOrEqual(
+        4096,
+      )
+    }),
+  )
+
   it.effect("normalizes generated png and jpeg attachments", () =>
     Effect.gen(function* () {
       const photon = yield* Effect.promise(() => import("@silvia-odwyer/photon-node"))

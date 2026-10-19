@@ -1482,6 +1482,7 @@ export const layer = Layer.effect(
         let planCreateFailures = 0
         let planCreateExhausted = false
         let toolCallParseRetries = 0
+        const imageRecovery = { omitImages: false }
         let lastToolCallParseRepairMessageID: string | undefined
         let lastUserID: string | undefined
         // Background semantic-memory curator for the current user message. It
@@ -1575,6 +1576,7 @@ export const layer = Layer.effect(
             latestUserMsg?.parts.some((part) => part.type === "text" && part.synthetic) ?? false
           if (lastUser.id !== lastUserID && !latestUserIsSynthetic) {
             step = 0
+            imageRecovery.omitImages = false
             planCreateFailures = 0
             planCreateExhausted = false
             toolCallParseRetries = 0
@@ -2384,6 +2386,7 @@ export const layer = Layer.effect(
               tools,
               model,
               toolChoice,
+              imageRecovery,
             }
             const result = childBudget
               ? yield* Effect.raceFirst(
