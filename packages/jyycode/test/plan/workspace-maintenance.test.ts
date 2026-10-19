@@ -207,9 +207,16 @@ describe("project workspace maintenance", () => {
       now: () => Date.now() + 2 * DAY,
       context: () => ({ ...emptyContext(), liveWorkspaceDirectories: live }),
     })
-    expect((await maintenance.scan()).quarantined).toEqual([])
-    expect((await maintenance.scan()).quarantined).toContain(garbage)
-    for (const directory of live) expect(fs.existsSync(directory)).toBe(true)
+    // Directory enumeration order varies by filesystem; garbage may appear
+    // in either batch. A full cycle must reach it without reclaiming live work.
+    const quarantined: string[] = []
+    for (let scan = 0; scan < 2; scan++) {
+      const result = await maintenance.scan()
+      expect(result.failures).toEqual([])
+      quarantined.push(...result.quarantined)
+      for (const directory of live) expect(fs.existsSync(directory)).toBe(true)
+    }
+    expect(quarantined).toEqual([garbage])
   })
 
   it("purges expired quarantine but preserves a directory still referenced by a live activation", async () => {
