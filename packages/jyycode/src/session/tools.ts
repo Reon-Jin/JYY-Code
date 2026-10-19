@@ -248,11 +248,13 @@ function hasReviewContinuation(task: PlanToolGateState["steps"][number]["tasks"]
 
 /** Standard reports are independently reviewable even while sibling tasks are still running. */
 export function pendingPlanReviewTasks(plan: PlanToolGateState | undefined) {
-  return plan?.steps.flatMap((step) =>
-    step.tasks
-      .filter((task) => task.status === "reported" && task.mode !== "candidate")
-      .map((task) => ({ stepId: step.id, taskId: task.id })),
-  ) ?? []
+  return (
+    plan?.steps.flatMap((step) =>
+      step.tasks
+        .filter((task) => task.status === "reported" && task.mode !== "candidate")
+        .map((task) => ({ stepId: step.id, taskId: task.id })),
+    ) ?? []
+  )
 }
 
 /**

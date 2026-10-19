@@ -615,11 +615,16 @@ describe("model-facing plan tool names", () => {
   it("reviews reported standard tasks while siblings are running or awaiting dispatch", () => {
     const plan = {
       current_step: "s1",
-      steps: [{ id: "s1", tasks: [
-        { id: "s1_t1", status: "reported", done_criteria: "x", output_path: "x.md" },
-        { id: "s1_t2", status: "running", done_criteria: "y", output_path: "y.md" },
-        { id: "s1_t3", status: "pending", done_criteria: "z", output_path: "z.md" },
-      ] }],
+      steps: [
+        {
+          id: "s1",
+          tasks: [
+            { id: "s1_t1", status: "reported", done_criteria: "x", output_path: "x.md" },
+            { id: "s1_t2", status: "running", done_criteria: "y", output_path: "y.md" },
+            { id: "s1_t3", status: "pending", done_criteria: "z", output_path: "z.md" },
+          ],
+        },
+      ],
     }
     expect(pendingPlanReviewTasks(plan)).toEqual([{ stepId: "s1", taskId: "s1_t1" }])
     expect(shouldWaitForPlanReport({ plan })).toBe(false)
@@ -635,12 +640,17 @@ describe("model-facing plan tool names", () => {
   })
 
   it("does not treat candidate proposals as independent standard reviews", () => {
-    expect(pendingPlanReviewTasks({
-      current_step: "s1",
-      steps: [{ id: "s1", tasks: [
-        { id: "s1_t1", mode: "candidate", status: "reported", done_criteria: "x", output_path: "x.md" },
-      ] }],
-    })).toEqual([])
+    expect(
+      pendingPlanReviewTasks({
+        current_step: "s1",
+        steps: [
+          {
+            id: "s1",
+            tasks: [{ id: "s1_t1", mode: "candidate", status: "reported", done_criteria: "x", output_path: "x.md" }],
+          },
+        ],
+      }),
+    ).toEqual([])
   })
 
   it("publishes complete nested schemas for progressive plans and all update operations", () => {

@@ -914,6 +914,87 @@ it.instance("multi-agent roots tolerate preflight calls before creating a missin
   }),
 )
 
+it.instance("inspects and reviews an early report before its running sibling finishes", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Incremental review",
+      multiAgent: true,
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    const context = { workspaceRoot: chat.directory, sessionId: chat.id, mode: "multi" as const }
+    yield* Effect.promise(() =>
+      defaultPlanProtocol.create(context, {
+        goal: "Review parallel artifacts",
+        steps: [
+          {
+            goal: "Produce artifacts",
+            done_criteria: "Both artifacts accepted",
+            tasks: ["early.md", "slow.md"].map((output_path) => ({
+              goal: `Write ${output_path}`,
+              done_criteria: `${output_path} exists`,
+              output_path,
+            })),
+          },
+          { goal: "Finish", done_criteria: "All work accepted" },
+        ],
+      }),
+    )
+    const dispatched = yield* Effect.promise(() =>
+      defaultPlanProtocol.dispatch(context, {
+        taskIds: ["s1_t1", "s1_t2"],
+        role: "general",
+      }),
+    )
+    if (!dispatched.ok) throw new Error("dispatch failed")
+    const early = dispatched.dispatched.find((task) => task.taskId === "s1_t1")!
+    const artifact = path.join(chat.directory, "early.md")
+    yield* Effect.promise(() => Bun.write(artifact, "Completed early artifact"))
+    const report = yield* Effect.promise(() =>
+      defaultPlanProtocol.report(
+        { ...context, sessionId: early.child_session_id, mode: "single", runId: early.run_id },
+        { run_id: early.run_id, status: "done", summary: "Early artifact complete", artifacts: [artifact], issues: [] },
+      ),
+    )
+    expect(report).toMatchObject({ ok: true, review: "pending_review" })
+    const before = yield* Effect.promise(() => defaultPlanProtocol.read(context))
+    if (!before.ok || !before.plan) throw new Error("plan missing")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "Produce and verify both artifacts" }],
+    })
+    yield* llm.tool("Plan_read", {})
+    yield* llm.tool("read", { filePath: artifact })
+    yield* llm.tool("Plan_update", {
+      revision: before.plan.revision,
+      ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
+    })
+    yield* prompt.wake({ sessionID: chat.id, kind: "plan_report_arrived", text: "A child has submitted a Report." })
+    const inputs = yield* llm.inputs
+    expect(inputs).toHaveLength(3)
+    expect(inputs[1]?.tool_choice).toBe("required")
+    expect(JSON.stringify(inputs[1])).toContain("Pending task reviews")
+    expect(JSON.stringify(inputs[1])).toContain("s1/s1_t1")
+    expect(JSON.stringify(inputs[1])).toContain("Do not wait for running siblings")
+    expect(JSON.stringify(inputs[1]?.tools)).toContain('"read"')
+    expect(JSON.stringify(inputs[1]?.tools)).toContain('"Plan_update"')
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const tools = messages
+      .flatMap((message) => message.parts)
+      .filter((part): part is MessageV2.ToolPart => part.type === "tool")
+    expect(tools.find((part) => part.tool === "read")?.state.status).toBe("completed")
+    expect(tools.filter((part) => part.state.status === "error")).toEqual([])
+    const after = yield* Effect.promise(() => defaultPlanProtocol.read(context))
+    if (!after.ok || !after.plan) throw new Error("plan missing")
+    expect(after.plan.current_step).toBe("s1")
+    expect(after.plan.steps[0]?.tasks.map((task) => task.status)).toEqual(["approved", "running"])
+  }),
+)
+
 it.instance("stops the Plan_create/Plan_read retry loop after bounded failed attempts", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)

@@ -2,7 +2,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
-import { PlanInbox } from "../../src/plan/events"
+import { PlanEventHub, PlanInbox, WakeupQueue } from "../../src/plan/events"
 import { PlanProtocol, type ChildStartInput } from "../../src/plan/protocol"
 import { PlanStore } from "../../src/plan/store"
 
@@ -15,6 +15,100 @@ function context(workspaceRoot: string, sessionId = "ses_main") {
 }
 
 describe("review feedback history", () => {
+  it("reviews and revises an early report while its sibling keeps running", async () => {
+    const root = workspace()
+    const artifact = path.join(root, "early.md")
+    const resumed: ChildStartInput[] = []
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      events: new PlanEventHub(),
+      wakeups: new WakeupQueue(),
+      inbox: new PlanInbox(),
+      children: {
+        async create(input) {
+          return input.childSessionId
+        },
+        async start() {},
+        async resume(input) {
+          resumed.push(input)
+        },
+        async terminate() {},
+      },
+    })
+    try {
+      expect(
+        await protocol.create(context(root), {
+          goal: "Review parallel deliverables",
+          steps: [
+            {
+              goal: "Produce both artifacts",
+              done_criteria: "Both artifacts accepted",
+              tasks: ["early.md", "slow.md"].map((output_path) => ({
+                goal: `Write ${output_path}`,
+                done_criteria: `${output_path} meets requirements`,
+                output_path,
+              })),
+            },
+            { goal: "Finish", done_criteria: "All work integrated" },
+          ],
+        }),
+      ).toMatchObject({ ok: true })
+      const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1", "s1_t2"], role: "general" })
+      expect(dispatched.ok).toBe(true)
+      if (!dispatched.ok) throw new Error("dispatch failed")
+      const early = dispatched.dispatched.find((task) => task.taskId === "s1_t1")!
+      const slow = dispatched.dispatched.find((task) => task.taskId === "s1_t2")!
+      fs.writeFileSync(artifact, "first draft")
+      expect(
+        await protocol.report(
+          { ...context(root, early.child_session_id), mode: "single", runId: early.run_id },
+          { run_id: early.run_id, status: "done", summary: "Early draft", artifacts: [artifact], issues: [] },
+        ),
+      ).toMatchObject({ ok: true, review: "pending_review" })
+      expect(protocol.drainWakeups("ses_main")).toMatchObject([
+        { type: "report_arrived", payload: { items: [{ taskId: "s1_t1" }] } },
+      ])
+      const read = await protocol.read(context(root))
+      if (!read.ok || !read.plan) throw new Error("plan missing")
+      expect(read.progress?.next_action_hint).toContain("不要等待同 Step")
+      const revision = await protocol.update(context(root), {
+        revision: read.plan.revision,
+        ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "reject", feedback: "Add examples" }],
+      })
+      expect(revision).toMatchObject({
+        ok: true,
+        dispatched: [{ taskId: "s1_t1", child_session_id: early.child_session_id }],
+      })
+      if (!revision.ok || !revision.dispatched?.[0]) throw new Error("revision was not dispatched")
+      expect(resumed).toHaveLength(1)
+      expect(resumed[0]?.brief.previous_feedback?.review_feedback).toBe("Add examples")
+      fs.writeFileSync(artifact, "revised draft with examples")
+      const retry = revision.dispatched[0]
+      expect(
+        await protocol.report(
+          { ...context(root, retry.child_session_id), mode: "single", runId: retry.run_id },
+          { run_id: retry.run_id, status: "done", summary: "Added examples", artifacts: [artifact], issues: [] },
+        ),
+      ).toMatchObject({ ok: true, review: "pending_review" })
+      expect(protocol.drainWakeups("ses_main")).toMatchObject([{ type: "report_arrived" }])
+      const reread = await protocol.read(context(root))
+      if (!reread.ok || !reread.plan) throw new Error("plan missing")
+      expect(
+        await protocol.update(context(root), {
+          revision: reread.plan.revision,
+          ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
+        }),
+      ).toMatchObject({ ok: true })
+      const final = await protocol.read(context(root))
+      if (!final.ok || !final.plan) throw new Error("plan missing")
+      expect(final.plan.current_step).toBe("s1")
+      expect(final.plan.steps[0]?.tasks[0]?.status).toBe("approved")
+      expect(final.plan.steps[0]?.tasks[1]).toMatchObject({ status: "running", dispatch: { run_id: slow.run_id } })
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("persists every rejection so later retries receive every round", async () => {
     const root = workspace()
     const artifact = path.join(root, "notes.md")

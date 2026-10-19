@@ -2035,7 +2035,9 @@ export const layer = Layer.effect(
                 ? yield* blackboard.unreadForMain(session.id)
                 : 0
             const inboxPending = planState?.ok ? (planState.progress?.inbox_pending ?? 0) : 0
-            const pendingReviews = SessionTools.pendingPlanReviewTasks(planState?.ok ? (planState.plan ?? undefined) : undefined)
+            const pendingReviews = SessionTools.pendingPlanReviewTasks(
+              planState?.ok ? (planState.plan ?? undefined) : undefined,
+            )
             const lastUserParts = msgs.find((message) => message.info.id === lastUser.id)?.parts ?? []
             const internalWakeOnly =
               lastUserParts.length > 0 && lastUserParts.every((part) => part.type === "text" && part.synthetic)
@@ -2196,11 +2198,13 @@ export const layer = Layer.effect(
               if (planPrompt) system.push(planPrompt)
             }
             if (pendingReviews.length > 0) {
-              system.push([
-                "## Pending task reviews",
-                `Current plan revision: ${planState?.ok ? planState.plan?.revision : undefined}. Review now: ${pendingReviews.map(({ stepId, taskId }) => `${stepId}/${taskId}`).join(", ")}.`,
-                "Inspect each reported artifact against its task criteria, then call Plan_update(review_task) for that task. Do not wait for running siblings or the whole Step. Reject with concrete feedback; the runtime resumes the child for revision. Merge only approved work.",
-              ].join("\n"))
+              system.push(
+                [
+                  "## Pending task reviews",
+                  `Current plan revision: ${planState?.ok ? planState.plan?.revision : undefined}. Review now: ${pendingReviews.map(({ stepId, taskId }) => `${stepId}/${taskId}`).join(", ")}.`,
+                  "Inspect each reported artifact against its task criteria, then call Plan_update(review_task) for that task. Do not wait for running siblings or the whole Step. Reject with concrete feedback; the runtime resumes the child for revision. Merge only approved work.",
+                ].join("\n"),
+              )
             }
             if (firstSessionTurn && session.parentID === undefined && skill) {
               const rootSkills = yield* sys
