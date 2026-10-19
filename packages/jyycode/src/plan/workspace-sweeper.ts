@@ -310,7 +310,19 @@ export function collectPlanReferences(
         continue
       }
       if (!plan) continue
-      for (const step of plan.steps)
+      for (const step of plan.steps) {
+        if (step.baseline) {
+          const active = !isStepComplete(step, workspaceRoot)
+          const reference: PlanReference = {
+            active,
+            terminal: !active,
+            rootSessionId: session.name,
+            taskId: step.id,
+            reason: active ? "PLAN_ACTIVE" : "TERMINAL_PLAN_REFERENCE",
+          }
+          for (const runtimeRoot of runtimeRoots)
+            addPlanReference(references, runtimeRoot, step.baseline.baseline_directory, reference)
+        }
         for (const task of step.tasks) {
           const active =
             (task.merge?.status === "merged" && !task.dispatch?.cancelled_at && !isStepComplete(step, workspaceRoot)) ||
@@ -332,6 +344,7 @@ export function collectPlanReferences(
             for (const value of values) addPlanReference(references, runtimeRoot, value, reference)
           }
         }
+      }
     }
   }
   return references

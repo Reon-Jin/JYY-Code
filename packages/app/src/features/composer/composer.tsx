@@ -610,7 +610,7 @@ export function Composer(props: ComposerProps) {
             <ComposerUsage metrics={props.usage!} permissionControl={props.permissionControl} />
           </Show>
 
-          <Show when={!props.minimal ? controller.failure() : undefined} keyed>
+          <Show when={controller.failure()} keyed>
             {(failure) => (
               <div class="composer__failure">
                 <InlineError message={errorMessage(failure, tr("composer.message-sending-failed"))} />

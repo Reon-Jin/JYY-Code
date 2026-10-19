@@ -8,14 +8,24 @@ import { DesktopBridgeProvider } from "../../platform/context"
 import { createFakeDesktop } from "../../test/fake-desktop"
 import type { ManagementContextValue } from "../management/management-context"
 import { AdvancedSettings } from "./advanced-settings"
+import type { Config } from "@jyycode-ai/sdk/v2"
 
-function management(shell = "cmd", directory = "C:\\Users\\dev", config = "C:\\Users\\dev\\.config\\jyycode") {
+function management(
+  shell = "cmd",
+  directory = "C:\\Users\\dev",
+  config = "C:\\Users\\dev\\.config\\jyycode",
+  timeoutMs?: number,
+) {
+  let stored: Config = { shell, ...(timeoutMs === undefined ? {} : { subagents: { timeout_ms: timeoutMs } }) }
   const client = {
     auth: { status: vi.fn(async () => ({ data: { active: false } })) },
     global: {
       config: {
-        get: vi.fn(async () => ({ data: { shell } })),
-        update: vi.fn(async ({ config }: { config: { shell: string } }) => ({ data: config })),
+        get: vi.fn(async () => ({ data: structuredClone(stored) })),
+        update: vi.fn(async ({ config }: { config: Config }) => {
+          stored = { ...stored, ...config, subagents: { ...stored.subagents, ...config.subagents } }
+          return { data: structuredClone(stored) }
+        }),
       },
       compaction: {
         get: vi.fn(async () => ({
@@ -80,6 +90,58 @@ afterEach(() => {
 })
 
 describe("AdvancedSettings", () => {
+  it("defaults to 60 minutes, persists a user limit, and reloads it", async () => {
+    const { value } = renderAdvanced()
+    const user = userEvent.setup()
+    const input = await screen.findByRole("spinbutton", { name: "执行时限（分钟）" })
+    await waitFor(() => expect(input).toBeEnabled())
+    expect(input).toHaveValue(60)
+    expect(screen.getByRole("button", { name: "保存执行时限" })).toBeDisabled()
+    await user.clear(input)
+    await user.type(input, "30")
+    await user.click(screen.getByRole("button", { name: "保存执行时限" }))
+    await waitFor(() =>
+      expect(value.client.global.config.update).toHaveBeenCalledWith(
+        { config: { subagents: { timeout_ms: 1_800_000 } } },
+        { throwOnError: true },
+      ),
+    )
+    expect(await screen.findByText("已保存；新派发和重试的子 Agent 将使用新时限。")).toBeVisible()
+    cleanup()
+    renderAdvanced(value)
+    await waitFor(() => expect(screen.getByRole("spinbutton", { name: "执行时限（分钟）" })).toHaveValue(30))
+  })
+
+  it("blocks empty, nonpositive, fractional and over-limit values without writing config", async () => {
+    const { value } = renderAdvanced()
+    const user = userEvent.setup()
+    const input = await screen.findByRole("spinbutton", { name: "执行时限（分钟）" })
+    await waitFor(() => expect(input).toBeEnabled())
+    for (const invalid of ["", "0", "-1", "1.5", "61"]) {
+      await user.clear(input)
+      if (invalid) await user.type(input, invalid)
+      expect(screen.getByRole("button", { name: "保存执行时限" })).toBeDisabled()
+      expect(input).toHaveAttribute("aria-invalid", "true")
+    }
+    expect(value.client.global.config.update).not.toHaveBeenCalled()
+  })
+
+  it("shows persisted settings and retains an unsaved edit when saving fails", async () => {
+    const value = management("cmd", "C:\\Users\\dev", "C:\\Users\\dev\\.config\\jyycode", 1_200_000)
+    value.client.global.config.update.mockRejectedValueOnce(new Error("保存失败"))
+    renderAdvanced(value)
+    const user = userEvent.setup()
+    const input = await screen.findByRole("spinbutton", { name: "执行时限（分钟）" })
+    await waitFor(() => expect(input).toHaveValue(20))
+    await user.clear(input)
+    await user.type(input, "45")
+    await user.click(screen.getByRole("button", { name: "保存执行时限" }))
+    expect(await screen.findByText("保存失败")).toBeVisible()
+    expect(input).toHaveValue(45)
+    expect(screen.getByRole("button", { name: "保存执行时限" })).toBeEnabled()
+    expect(screen.queryByText("已保存；新派发和重试的子 Agent 将使用新时限。")).not.toBeInTheDocument()
+  })
+
   it("updates the default Shell and reveals the validated global config path", async () => {
     const { value, desktop } = renderAdvanced()
     const user = userEvent.setup()

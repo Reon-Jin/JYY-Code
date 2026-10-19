@@ -20,6 +20,8 @@ import {
 } from "./snapshot-manifest"
 import { preflightWorkspaceBudget } from "./workspace-budget"
 import { execGitSync } from "./git-platform-adapter"
+import { Flock } from "@jyycode-ai/core/util/flock"
+import type { StepBaseline } from "./schema"
 
 export type ChildWorkspaceMode = "worktree" | "snapshot" | "shared_compat"
 export type CleanupPolicy = "on_success" | "on_cancel" | "retain_on_failure"
@@ -118,6 +120,12 @@ type ChildWorkspaceOptions = {
   snapshotExclude?: readonly string[]
   snapshotInclude?: readonly string[]
   workspaceBudget?: { softLimitBytes?: number; hardLimitBytes?: number }
+}
+
+type StepPin = StepBaseline & {
+  sessionID: string
+  stepID: string
+  dirty?: { copy: string[]; remove: string[]; tracked: string[] }
 }
 
 export type WorkspaceRemovalGuard = {
@@ -666,6 +674,7 @@ export class ChildWorkspace {
   private waveDirtyPlanReady = false
   /** Most recent immutable baseline, reused to hardlink unchanged files. */
   private lastBaseline?: { directory: string; byPath: Map<string, BaselineManifestEntry> }
+  private readonly stepSources = new Map<string, { pin: StepPin; manifest: SnapshotManifest }>()
 
   constructor(options: ChildWorkspaceOptions) {
     this.project = { ...options.project, root: path.resolve(options.project.root) }
@@ -739,21 +748,192 @@ export class ChildWorkspace {
     )
   }
 
-  async preflight(reservations: readonly WorkspaceReservation[], signal?: AbortSignal) {
+  private stepPinPath(sessionID: string, stepID: string) {
+    const key = crypto.createHash("sha256").update(`${sessionID}\0${stepID}`).digest("hex").slice(0, 32)
+    return path.join(this.runtimeRoot, `${key}.step-baseline.json`)
+  }
+
+  private readStepSource(pin: StepPin) {
+    const directory = path.join(this.runtimeRoot, `baseline-${pin.source_manifest_hash.slice(0, 24)}`)
+    if (
+      !/^[a-f0-9]{64}$/.test(pin.source_manifest_hash) ||
+      pin.baseline_id !== path.basename(directory) ||
+      path.resolve(pin.baseline_directory) !== directory ||
+      !fs.existsSync(directory)
+    )
+      throw new ChildWorkspaceError("Step fixed baseline is missing or inconsistent; it must not be recaptured", {
+        recoverable: false,
+      })
+    assertRuntimePath({ runtimeRoot: this.runtimeRoot, candidate: directory, label: "Step baseline" })
+    const cached = this.stepSources.get(`${pin.sessionID}\0${pin.stepID}`)
+    if (
+      cached &&
+      cached.pin.baseline_id === pin.baseline_id &&
+      cached.pin.source_manifest_hash === pin.source_manifest_hash &&
+      cached.pin.source_revision === pin.source_revision
+    )
+      return cached
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(this.runtimeRoot, `${pin.baseline_id}.source.json`), "utf8"),
+    ) as SnapshotManifest
+    if (
+      manifest.version !== 1 ||
+      path.resolve(manifest.source_root) !== path.resolve(this.project.root) ||
+      !Array.isArray(manifest.entries) ||
+      hashManifest(manifest.entries) !== pin.source_manifest_hash ||
+      manifest.source_manifest_hash !== pin.source_manifest_hash
+    )
+      throw new ChildWorkspaceError("Step baseline source manifest changed", { recoverable: false })
+    for (const entry of manifest.entries)
+      assertInside(directory, path.resolve(directory, entry.relative_path), "baseline entry")
+    if (pin.dirty) {
+      for (const paths of [pin.dirty.copy, pin.dirty.remove, pin.dirty.tracked]) {
+        if (!Array.isArray(paths)) throw new ChildWorkspaceError("Invalid frozen Git overlay", { recoverable: false })
+        for (const relative of paths) assertInside(directory, path.resolve(directory, relative), "frozen Git path")
+      }
+    }
+    const value = { pin, manifest }
+    this.stepSources.set(`${pin.sessionID}\0${pin.stepID}`, value)
+    return value
+  }
+
+  private async pinStepBaseline(
+    step: { sessionID: string; stepID: string; baseline?: StepBaseline },
+    signal?: AbortSignal,
+    snapshotCount = 0,
+  ) {
+    const pathname = this.stepPinPath(step.sessionID, step.stepID)
+    return Flock.withLock(
+      pathname,
+      async () => {
+        let pin: StepPin
+        let budget
+        if (fs.existsSync(pathname)) {
+          pin = JSON.parse(fs.readFileSync(pathname, "utf8")) as StepPin
+          if (
+            pin.sessionID !== step.sessionID ||
+            pin.stepID !== step.stepID ||
+            (step.baseline &&
+              (pin.baseline_id !== step.baseline.baseline_id ||
+                pin.source_manifest_hash !== step.baseline.source_manifest_hash))
+          )
+            throw new ChildWorkspaceError("Step baseline identity changed", { recoverable: false })
+        } else if (step.baseline) {
+          pin = { ...step.baseline, sessionID: step.sessionID, stepID: step.stepID }
+          this.readStepSource(pin)
+        } else {
+          let revision: string | null = null
+          if (this.project.vcs === "git") {
+            try {
+              revision = execGitSync(this.project.root, ["rev-parse", "HEAD"]).toString("utf8").trim()
+            } catch {}
+          }
+          const dirty = revision ? dirtyWorktreePlan(this.project.root) : undefined
+          const manifest = await buildSourceManifest(
+            this.project.root,
+            this.project.vcs,
+            this.runtimeRoot,
+            this.snapshotLimits,
+            this.snapshotExclude,
+            this.snapshotInclude,
+          )
+          signal?.throwIfAborted()
+          if (revision) {
+            const current = dirtyWorktreePlan(this.project.root)
+            const paths = (value: DirtyWorktreePlan | undefined) =>
+              value && JSON.stringify([value.copy, value.remove, value.tracked].map((items) => [...items].sort()))
+            if (
+              execGitSync(this.project.root, ["rev-parse", "HEAD"]).toString("utf8").trim() !== revision ||
+              paths(dirty) !== paths(current)
+            )
+              throw new ChildWorkspaceError("Project changed while freezing Step baseline; retry dispatch")
+          }
+          if (snapshotCount) {
+            try {
+              budget = await preflightWorkspaceBudget({
+                runtimeRoot: this.runtimeRoot,
+                manifest,
+                taskCount: snapshotCount,
+                ...this.workspaceBudget,
+                signal,
+              })
+            } catch (error) {
+              removeManifestHashCache(this.runtimeRoot, this.project.root)
+              throw error
+            }
+          }
+          const shared = await Flock.withLock(
+            `baseline:${manifest.source_manifest_hash}`,
+            () => this.ensureSharedBaseline(manifest),
+            { dir: path.join(this.runtimeRoot, ".locks"), signal },
+          )
+          // A changing parent must not leave bytes that disagree with the frozen manifest.
+          await mapConcurrent(manifest.entries, HASH_CONCURRENCY, async (entry) => {
+            const filename = path.join(shared.directory, entry.relative_path)
+            const hash =
+              entry.mode === "file" ? await hashFileStream(filename) : assertSafeSymlink(shared.directory, filename)
+            if (hash !== entry.hash)
+              throw new ChildWorkspaceError("Project changed while freezing Step baseline; retry dispatch")
+          })
+          pin = {
+            sessionID: step.sessionID,
+            stepID: step.stepID,
+            baseline_id: shared.baselineId,
+            baseline_directory: shared.directory,
+            source_manifest_hash: manifest.source_manifest_hash,
+            source_revision: revision,
+            ...(dirty
+              ? { dirty: { copy: [...dirty.copy], remove: [...dirty.remove], tracked: [...dirty.tracked] } }
+              : {}),
+          }
+        }
+        const value = this.readStepSource(pin)
+        if (!fs.existsSync(pathname)) {
+          const staging = `${pathname}.${crypto.randomUUID()}.tmp`
+          try {
+            fs.writeFileSync(staging, JSON.stringify(pin))
+            fs.renameSync(staging, pathname)
+          } finally {
+            fs.rmSync(staging, { force: true })
+          }
+        }
+        return { ...value, budget }
+      },
+      { dir: path.join(this.runtimeRoot, ".locks"), signal },
+    )
+  }
+
+  releaseStepBaseline(sessionID: string, stepID: string) {
+    fs.rmSync(this.stepPinPath(sessionID, stepID), { force: true })
+    this.stepSources.delete(`${sessionID}\0${stepID}`)
+  }
+
+  async preflight(
+    reservations: readonly WorkspaceReservation[],
+    signal?: AbortSignal,
+    step?: { sessionID: string; stepID: string; baseline?: StepBaseline },
+  ) {
     signal?.throwIfAborted()
     const isolated = reservations.filter((reservation) => reservation.mode !== "shared_compat")
-    if (isolated.length === 0) return undefined
+    if (step && this.capability() === "shared_compat")
+      throw new ChildWorkspaceError(
+        "Step isolation requires separate workspaces; shared_compat cannot freeze child inputs",
+      )
+    if (isolated.length === 0 && !step) return undefined
     const snapshots = isolated.filter((reservation) => reservation.mode === "snapshot")
-    const manifest = await buildSourceManifest(
-      this.project.root,
-      this.project.vcs,
-      this.runtimeRoot,
-      this.snapshotLimits,
-      this.snapshotExclude,
-      this.snapshotInclude,
-    )
-    let budget
-    if (snapshots.length > 0) {
+    const pinned = step ? await this.pinStepBaseline(step, signal, snapshots.length) : undefined
+    const manifest =
+      pinned?.manifest ??
+      (await buildSourceManifest(
+        this.project.root,
+        this.project.vcs,
+        this.runtimeRoot,
+        this.snapshotLimits,
+        this.snapshotExclude,
+        this.snapshotInclude,
+      ))
+    let budget = pinned?.budget
+    if (snapshots.length > 0 && !budget) {
       try {
         budget = await preflightWorkspaceBudget({
           runtimeRoot: this.runtimeRoot,
@@ -770,14 +950,43 @@ export class ChildWorkspace {
     }
     this.pendingManifest = manifest
     this.pendingManifestUses = isolated.length
-    if (this.project.vcs === "git") {
+    if (pinned) {
+      for (const reservation of isolated)
+        Object.assign(reservation, {
+          baseline_id: pinned.pin.baseline_id,
+          baseline_directory: pinned.pin.baseline_directory,
+          source_manifest_hash: pinned.pin.source_manifest_hash,
+          source_revision: pinned.pin.source_revision,
+        })
+      this.waveDirtyPlan = pinned.pin.dirty
+        ? {
+            copy: new Set(pinned.pin.dirty.copy),
+            remove: new Set(pinned.pin.dirty.remove),
+            tracked: new Set(pinned.pin.dirty.tracked),
+          }
+        : undefined
+      this.waveDirtyPlanReady = true
+    } else if (this.project.vcs === "git") {
       this.waveDirtyPlan = dirtyWorktreePlan(this.project.root)
       this.waveDirtyPlanReady = true
     } else {
       this.waveDirtyPlan = undefined
       this.waveDirtyPlanReady = false
     }
-    return { manifest, ...(budget ? { budget } : {}) }
+    return {
+      manifest,
+      ...(budget ? { budget } : {}),
+      ...(pinned
+        ? {
+            baseline: {
+              baseline_id: pinned.pin.baseline_id,
+              baseline_directory: pinned.pin.baseline_directory,
+              source_manifest_hash: pinned.pin.source_manifest_hash,
+              source_revision: pinned.pin.source_revision,
+            },
+          }
+        : {}),
+    }
   }
 
   private dirtyPlanForWave() {
@@ -788,7 +997,7 @@ export class ChildWorkspace {
   private async ensureSharedBaseline(manifest: SnapshotManifest) {
     const baselineId = `baseline-${manifest.source_manifest_hash.slice(0, 24)}`
     const existing = this.pendingBaselines.get(manifest.source_manifest_hash)
-    if (existing) return { baselineId, ...existing }
+    if (existing && fs.existsSync(existing.directory)) return { baselineId, ...existing }
     const running = this.baselineOperations.get(manifest.source_manifest_hash)
     if (running) return running
     const operation = (async () => {
@@ -889,7 +1098,18 @@ export class ChildWorkspace {
         }
       }
 
-      const sourceManifest = await this.sourceManifest()
+      const pinned =
+        reservation.baseline_id && reservation.baseline_directory && reservation.source_manifest_hash
+          ? this.readStepSource({
+              sessionID: reservation.rootSessionId,
+              stepID: reservation.taskId.split("_t")[0]!,
+              baseline_id: reservation.baseline_id,
+              baseline_directory: reservation.baseline_directory,
+              source_manifest_hash: reservation.source_manifest_hash,
+              source_revision: reservation.source_revision ?? null,
+            })
+          : undefined
+      const sourceManifest = pinned?.manifest ?? (await this.sourceManifest())
       const baselineManifest =
         sourceManifest?.entries ??
         (await snapshotManifest(this.project.root, this.project.vcs, this.snapshotLimits, this.runtimeRoot))
@@ -933,7 +1153,31 @@ export class ChildWorkspace {
             directory: info.directory,
           })
         const worktreeDirectory = path.resolve(info.directory)
-        const dirty = this.dirtyPlanForWave()
+        let dirty = pinned?.pin.dirty
+          ? {
+              copy: new Set(pinned.pin.dirty.copy),
+              remove: new Set(pinned.pin.dirty.remove),
+              tracked: new Set(pinned.pin.dirty.tracked),
+            }
+          : pinned
+            ? undefined
+            : this.dirtyPlanForWave()
+        if (pinned?.pin.source_revision) {
+          try {
+            if (!/^[a-f0-9]{40,64}$/.test(pinned.pin.source_revision)) throw new Error("Invalid frozen Git revision")
+            execGitSync(worktreeDirectory, [
+              "-c",
+              "core.autocrlf=false",
+              "-c",
+              "core.eol=lf",
+              "reset",
+              "--hard",
+              pinned.pin.source_revision,
+            ])
+          } catch {
+            dirty = undefined
+          }
+        }
         if (!dirty) {
           // Fallback for non-Git fixtures and adapters that do not check out files.
           await clearTreeExceptGit(worktreeDirectory)
@@ -1166,7 +1410,8 @@ export class ChildWorkspace {
 
   private hasOtherBaselineReference(baselineId: string, manifestPathname: string) {
     for (const entry of fs.readdirSync(this.runtimeRoot, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith(".manifest.json")) continue
+      if (!entry.isFile() || (!entry.name.endsWith(".manifest.json") && !entry.name.endsWith(".step-baseline.json")))
+        continue
       const pathname = path.join(this.runtimeRoot, entry.name)
       if (path.resolve(pathname) === path.resolve(manifestPathname)) continue
       try {

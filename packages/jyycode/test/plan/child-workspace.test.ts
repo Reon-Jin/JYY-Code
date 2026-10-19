@@ -27,6 +27,105 @@ afterEach(async () => {
 })
 
 describe("ChildWorkspace", () => {
+  it("restores frozen Git revision and dirty inputs after the parent advances HEAD", async () => {
+    const root = tempDirectory("jyycode-step-git-")
+    const runtime = tempDirectory("jyycode-step-git-runtime-")
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" })
+    git("init", "--quiet")
+    git("config", "user.email", "step-test@example.com")
+    git("config", "user.name", "Step Test")
+    fs.writeFileSync(path.join(root, "clean.ts"), "original clean\n")
+    fs.writeFileSync(path.join(root, "dirty.ts"), "original committed\n")
+    git("add", ".")
+    git("commit", "--quiet", "-m", "base")
+    const revision = git("rev-parse", "HEAD").toString().trim()
+    fs.writeFileSync(path.join(root, "dirty.ts"), "frozen dirty\n")
+    fs.writeFileSync(path.join(root, "untracked.md"), "frozen untracked\n")
+    const adapter: WorktreeAdapter = {
+      async makeWorktreeInfo(input) {
+        return { name: input.name, directory: path.join(runtime, input.name) }
+      },
+      async createFromInfo(info) {
+        git("worktree", "add", "--detach", info.directory, "HEAD")
+      },
+      async remove(directory) {
+        git("worktree", "remove", "--force", directory)
+        return true
+      },
+    }
+    const options = { project: { root, vcs: "git" as const }, runtimeRoot: runtime, worktree: adapter }
+    const manager = new ChildWorkspace(options)
+    const first = manager.reserve("ses_git", "s1_t1")
+    const frozen = await manager.preflight([first], undefined, { sessionID: "ses_git", stepID: "s1" })
+    await manager.create(first)
+    fs.writeFileSync(path.join(root, "clean.ts"), "new parent revision\n")
+    fs.writeFileSync(path.join(root, "sibling.md"), "new sibling output\n")
+    fs.rmSync(path.join(root, "untracked.md"))
+    git("add", ".")
+    git("commit", "--quiet", "-m", "parent advanced")
+    const restarted = new ChildWorkspace(options)
+    const second = restarted.reserve("ses_git", "s1_t2")
+    await restarted.preflight([second], undefined, { sessionID: "ses_git", stepID: "s1", baseline: frozen!.baseline })
+    const child = await restarted.create(second)
+    expect(child.source_revision).toBe(revision)
+    expect(fs.readFileSync(path.join(child.directory, "clean.ts"), "utf8")).toBe("original clean\n")
+    expect(fs.readFileSync(path.join(child.directory, "dirty.ts"), "utf8")).toBe("frozen dirty\n")
+    expect(fs.readFileSync(path.join(child.directory, "untracked.md"), "utf8")).toBe("frozen untracked\n")
+    expect(fs.existsSync(path.join(child.directory, "sibling.md"))).toBe(false)
+  })
+
+  it("fails closed if a recorded Step baseline disappears, even in the same manager", async () => {
+    const root = tempDirectory("jyycode-step-missing-")
+    const runtime = tempDirectory("jyycode-step-missing-runtime-")
+    fs.writeFileSync(path.join(root, "input.md"), "original")
+    const manager = new ChildWorkspace({ project: { root, vcs: "none" }, runtimeRoot: runtime })
+    const first = manager.reserve("ses_root", "s1_t1")
+    const frozen = await manager.preflight([first], undefined, { sessionID: "ses_root", stepID: "s1" })
+    // The test fixture returns an exact child path inside its own runtime root.
+    const directory = path.resolve(frozen!.baseline!.baseline_directory)
+    expect(path.dirname(directory)).toBe(path.resolve(runtime))
+    fs.rmSync(directory, { recursive: true, force: true })
+    fs.writeFileSync(path.join(root, "sibling.md"), "must never recapture")
+    await expect(
+      manager.preflight([manager.reserve("ses_root", "s1_t2")], undefined, {
+        sessionID: "ses_root",
+        stepID: "s1",
+        baseline: frozen!.baseline,
+      }),
+    ).rejects.toThrow("must not be recaptured")
+    expect(fs.existsSync(directory)).toBe(false)
+  })
+
+  it("pins one Step baseline across later batches, manager restart, and child cleanup", async () => {
+    const root = tempDirectory("jyycode-step-project-")
+    const runtime = tempDirectory("jyycode-step-runtime-")
+    const options = { project: { root, vcs: "none" as const }, runtimeRoot: runtime }
+    fs.writeFileSync(path.join(root, "input.md"), "original")
+    const manager = new ChildWorkspace(options)
+    const first = manager.reserve("ses_root", "s1_t1")
+    const preflight = await manager.preflight([first], undefined, { sessionID: "ses_root", stepID: "s1" })
+    const one = await manager.create(first)
+    fs.writeFileSync(path.join(root, "input.md"), "changed after first dispatch")
+    fs.writeFileSync(path.join(root, "sibling.md"), "early sibling merge")
+    await manager.remove(one.directory)
+    const restarted = new ChildWorkspace(options)
+    const second = restarted.reserve("ses_root", "s1_t2")
+    await restarted.preflight([second], undefined, {
+      sessionID: "ses_root",
+      stepID: "s1",
+      baseline: preflight!.baseline,
+    })
+    const two = await restarted.create(second)
+    expect(fs.readFileSync(path.join(two.directory, "input.md"), "utf8")).toBe("original")
+    expect(fs.existsSync(path.join(two.directory, "sibling.md"))).toBe(false)
+    expect(two.baseline_id).toBe(one.baseline_id)
+    const next = restarted.reserve("ses_root", "s2_t1")
+    await restarted.preflight([next], undefined, { sessionID: "ses_root", stepID: "s2" })
+    const later = await restarted.create(next)
+    expect(fs.readFileSync(path.join(later.directory, "sibling.md"), "utf8")).toBe("early sibling merge")
+    expect(later.baseline_id).not.toBe(two.baseline_id)
+  })
+
   it("chooses isolated capabilities and reserves deterministically", () => {
     const root = tempDirectory("jyycode-child-project-")
     const runtime = tempDirectory("jyycode-child-runtime-")

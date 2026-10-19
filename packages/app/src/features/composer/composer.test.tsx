@@ -179,6 +179,30 @@ describe("Composer", () => {
     expect(client.session.terminate).toHaveBeenCalledWith({ directory, sessionID }, { throwOnError: true })
   })
 
+  it("shows a failed child steering request and retries through the interrupt endpoint", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer({ minimal: true, childSteering: true, status: { type: "busy" } })
+    client.session.interruptPrompt.mockRejectedValueOnce(new Error("Child steering failed"))
+    await user.type(screen.getByRole("textbox", { name: "消息" }), "New instructions")
+    await user.click(screen.getByRole("button", { name: "发送并中断" }))
+    expect(await screen.findByText("Child steering failed")).toBeVisible()
+    expect(screen.getByRole("textbox", { name: "消息" })).toHaveValue("New instructions")
+    await user.click(screen.getByRole("button", { name: "重试" }))
+    await waitFor(() => expect(client.session.interruptPrompt).toHaveBeenCalledTimes(2))
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "消息" })).toHaveValue(""))
+  })
+
+  it("shows a failed child termination instead of silently ignoring it", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer({ minimal: true, childSteering: true, status: { type: "busy" } })
+    client.session.terminate.mockRejectedValueOnce(new Error("Child termination failed"))
+    await user.click(screen.getByRole("button", { name: "终止" }))
+    await user.click(screen.getByRole("button", { name: "确认终止？" }))
+    expect(await screen.findByText("Child termination failed")).toBeVisible()
+    expect(screen.getByRole("button", { name: "终止" })).toBeEnabled()
+  })
+
   it("lets a minimal child composer send while the child session is idle", async () => {
     const user = userEvent.setup()
     const client = renderComposer({ minimal: true, childSteering: false, status: { type: "idle" } })

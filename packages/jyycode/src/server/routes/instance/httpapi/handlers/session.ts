@@ -120,7 +120,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const permissionSvc = yield* Permission.Service
     const statusSvc = yield* SessionStatus.Service
     const instanceStore = yield* InstanceStore.Service
-    const bridge = yield* EffectBridge.make()
     const summary = yield* SessionSummary.Service
     const blackboard = yield* Blackboard.Service
     const bus = yield* Bus.Service
@@ -152,6 +151,14 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       while (current.parentID) current = yield* requireSession(current.parentID)
       return current
     })
+
+    // A dispatched child may run in its parent's instance while its files live
+    // in an isolated directory. Resolve the actual runner before controlling it.
+    const inSessionRuntime = <A, E, R>(effect: Effect.Effect<A, E, R>, ctx: { params: { sessionID: SessionID } }) =>
+      Effect.gen(function* () {
+        const directory = yield* runState.directory(ctx.params.sessionID)
+        return yield* (directory ? instanceStore.provide({ directory }, effect) : effect)
+      })
 
     // Push a plan.updated event onto the bus so desktop clients refetch the
     // plan snapshot after handler-side plan mutations. Protocol writes done
@@ -504,7 +511,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const abort = Effect.fn("SessionHttpApi.abort")(function* (ctx: { params: { sessionID: SessionID } }) {
       yield* promptSvc.cancel(ctx.params.sessionID)
       return true
-    })
+    }, inSessionRuntime)
 
     const interruptPrompt = Effect.fn("SessionHttpApi.interruptPrompt")(function* (ctx: {
       params: { sessionID: SessionID }
@@ -543,9 +550,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         Effect.forkIn(scope, { startImmediately: true }),
       )
       return HttpApiSchema.NoContent.make()
-    })
+    }, inSessionRuntime)
 
     const terminate = Effect.fn("SessionHttpApi.terminate")(function* (ctx: { params: { sessionID: SessionID } }) {
+      const bridge = yield* EffectBridge.make()
       const child = yield* requireSession(ctx.params.sessionID)
       const parent = child.parentID ? yield* requireSession(child.parentID) : undefined
       const ref = activePlanTaskForChild(child, parent?.directory)
@@ -598,7 +606,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         if (intentSeq !== undefined) clearChildRunIntent(child.id, intentSeq)
       }
       return HttpApiSchema.NoContent.make()
-    })
+    }, inSessionRuntime)
 
     const init = Effect.fn("SessionHttpApi.init")(function* (ctx: {
       params: { sessionID: SessionID }

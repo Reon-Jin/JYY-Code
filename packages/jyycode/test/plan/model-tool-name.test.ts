@@ -668,13 +668,19 @@ describe("model-facing plan tool names", () => {
     expect((PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { description?: string }).description).toContain("4-8")
     expect(createSteps.items).toMatchObject({
       required: ["goal", "done_criteria"],
-      properties: { tasks: { items: { required: ["goal", "done_criteria"] } } },
+      properties: { tasks: { items: { required: ["goal", "done_criteria", "inputs"] } } },
     })
     const taskProperties = (
       createSteps.items as { properties: { tasks: { description?: string; items: { properties: object } } } }
     ).properties.tasks
     expect(taskProperties.description).toContain("2-3 candidate Tasks")
     expect(taskProperties.items.properties).toHaveProperty("instructions")
+    expect(taskProperties.items.properties).toMatchObject({
+      inputs: {
+        type: "array",
+        items: { required: ["path"], properties: { from_task: { pattern: "^s[1-9]\\d*_t[1-9]\\d*$" } } },
+      },
+    })
     expect(taskProperties.items.properties).not.toHaveProperty("timeout_ms")
     expect((taskProperties.items.properties as { mode?: { description?: string } }).mode?.description).toContain(
       "exactly 2-3",
@@ -708,6 +714,7 @@ describe("model-facing plan tool names", () => {
       (operation) => (operation as { properties?: { op?: { const?: string } } }).properties?.op?.const === "edit_task",
     ) as { properties?: { fields?: { properties?: object } } } | undefined
     expect(editTask?.properties?.fields?.properties ?? {}).not.toHaveProperty("timeout_ms")
+    expect(editTask?.properties?.fields?.properties ?? {}).toHaveProperty("inputs")
   })
 
   it("gives the main Agent concrete decomposition and candidate lifecycle rules", () => {
@@ -716,6 +723,8 @@ describe("model-facing plan tool names", () => {
     expect(prompt).toContain("verification surfaces")
     expect(prompt).toContain("4-8")
     expect(prompt).toContain("same-role")
+    expect(prompt).toContain("Never split independent work into one-Task Steps")
+    expect(prompt).toContain("All batches and retries in a Step use its original frozen baseline")
     expect(prompt).toContain("synthesis artifact")
   })
 

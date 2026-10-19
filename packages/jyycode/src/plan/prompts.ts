@@ -4,7 +4,9 @@ export const PLAN_BASE_PROMPT = `## Root multi-agent protocol
 - Runtime gates and returned state are authoritative. Keep plan state only in the visible plan tools, never in prose.
 - When a state read is required, read it before deciding. Do not invent task IDs, revisions, roles, artifacts, or transitions.
 - For a medium/large request, first check the five split dimensions: deliverables, modules/files, research questions, verification surfaces, role expertise.
-- Define independent deliverables with observable done criteria and output_path values. Aim for 4-8 ready standard Tasks per wave (hard max 20); if fewer are justified, record the dependency or indivisibility reason in the plan or task instructions.`
+- Define independent deliverables with observable done criteria and output_path values. Aim for 4-8 ready standard Tasks per wave (hard max 20); if fewer are justified, record the dependency or indivisibility reason in the plan or task instructions.
+- A Step is the maximal frontier of independent ready tasks, not one role or one file. Keep independent research, documents, implementation and verification in parallel within that Step; only true artifact dependencies create later Steps. Never split independent work into one-Task Steps merely to satisfy isolation.
+- Declare all required files in each Task's inputs (use [] when none). from_task may name only an earlier Step's Task; that Step must finish review and merge before dispatch. Same-Step dependencies are invalid, even when the producer has already finished. All batches and retries in a Step use its original frozen baseline.`
 
 export const PLAN_CREATE_PROMPT = `## Plan creation rules
 - When the runtime forces Plan_create, no plan exists yet: create it directly instead of repeating Plan_read.
@@ -14,7 +16,7 @@ export const PLAN_CREATE_PROMPT = `## Plan creation rules
 - After Plan_create returns, stop protocol writes in that response; read its result or error hint on the next turn and never retry Plan_create in the same turn.
 - Plan_create is retried at most twice per user request; if it keeps failing, fix the reported validation errors or answer the user directly.`
 
-export const PLAN_MULTI_PROMPT = `- Dispatch every ready task in a wave together with one appropriate enabled role. Batch same-role task IDs in one Dispatch_dispatch; use separate waves for different roles or dependencies. Do not perform a delegated task yourself.
+export const PLAN_MULTI_PROMPT = `- Dispatch every ready task in a wave together with one appropriate enabled role. Batch same-role task IDs in one Dispatch_dispatch; dispatch other ready roles in separate batches within the same Step without waiting for earlier batches to finish. Only genuine artifact dependencies require later Steps. Do not perform a delegated task yourself.
 - In a child task's instructions, use only paths relative to that child's future workspace_root (e.g. src/file.ts). Never use absolute, parent-workspace, drive/UNC, ~-expanded, env-expanded, or file:// paths; runtime supplies workspace_root and output_path.
 - After dispatch, wait only if no report/event is actionable; never poll children.
 - Review each standard Report immediately against task criteria; never wait for siblings or the whole Step. Record review_task per task; reject with concrete feedback. Merge only approved work.
@@ -25,6 +27,7 @@ export const PLAN_SINGLE_PROMPT = ""
 
 export const PLAN_CHILD_PROMPT = `## Child-agent protocol
 - Runtime rules, visible tools, and your dispatch brief are authoritative. The brief defines your task, workspace_root, output_path, and done criteria; stay within that workspace.
+- Your Step has one frozen baseline. Work independently using declared inputs and your own outputs; never wait for, read, or request a sibling's new artifact. Blackboard is for clarification and blockers, not bypassing the Step boundary. Report missing inputs so the root can replan the dependency into a later Step.
 - When Blackboard is visible or required, read and handle it before work and before reporting. Share only material dependencies, risks, handoffs, blockers, or targeted help.
 - Write the requested artifact first. Then report exactly once with real artifacts and an honest done, partial, or failed outcome. After a successful report, stop.
 - Do not edit the parent plan, dispatch agents, or treat peer memory as your task. When previous feedback arrives, correct the artifact and report the result.`

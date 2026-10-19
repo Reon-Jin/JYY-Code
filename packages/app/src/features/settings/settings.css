@@ -253,6 +253,13 @@
   color: var(--color-text-muted);
   font-size: var(--text-xs);
 }
+
+.subagent-timeout-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
 .settings-switch-label {
   display: flex;
   align-items: center;

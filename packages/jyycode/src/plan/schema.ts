@@ -17,6 +17,8 @@ export const ERROR_CODES = {
   PLAN_FINALIZED: "PLAN_FINALIZED",
   BLACKBOARD_UNREAD: "BLACKBOARD_UNREAD",
   WORKSPACE_QUOTA_EXCEEDED: "WORKSPACE_QUOTA_EXCEEDED",
+  TASK_DEPENDENCY_INVALID: "TASK_DEPENDENCY_INVALID",
+  TASK_INPUT_MISSING: "TASK_INPUT_MISSING",
 } as const
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
@@ -100,7 +102,7 @@ export type DispatchWorkspace = WorkspaceBaseline & {
 }
 
 export type DispatchLifecycle = "reserved" | "child_created" | "starting" | "running" | "settled"
-export type DispatchBudgetSource = "default" | "profile" | "plan" | "parent"
+export type DispatchBudgetSource = "default" | "profile" | "plan" | "parent" | "config"
 
 export type DispatchBudget = {
   max_steps: number
@@ -138,6 +140,15 @@ export type ReportRecord = {
   review_feedback_history?: Array<{ review_feedback: string; issues: string[] }>
 }
 
+export type TaskInput = { path: string; from_task?: string }
+
+export type StepBaseline = {
+  baseline_id: string
+  baseline_directory: string
+  source_manifest_hash: string
+  source_revision: string | null
+}
+
 export type PlanTask = {
   id: string
   title: string
@@ -145,6 +156,8 @@ export type PlanTask = {
   done_criteria: string
   /** Detailed execution context carried into the dispatched child brief. */
   instructions?: string
+  /** Read-only files from the Step baseline; producer references must point to earlier Steps. */
+  inputs?: TaskInput[]
   output_path: string | null
   /** Legacy persisted field; new plans cannot set it and runtime ignores it. */
   max_steps?: number
@@ -166,6 +179,7 @@ export type PlanStep = {
   done_criteria: string
   status: StepStatus
   tasks: PlanTask[]
+  baseline?: StepBaseline
   candidate_discussion?: CandidateDiscussion
   candidate_selection?: CandidateSelection
 }
@@ -186,6 +200,7 @@ export type CreateTaskInput = {
   goal: string
   done_criteria: string
   instructions?: string
+  inputs?: TaskInput[]
   output_path?: string
   no_progress_steps?: number
   mode?: PlanTaskMode
@@ -215,7 +230,10 @@ export type PlanUpdateOp =
       stepId: string
       taskId: string
       fields: Partial<
-        Pick<PlanTask, "title" | "goal" | "done_criteria" | "instructions" | "output_path" | "no_progress_steps">
+        Pick<
+          PlanTask,
+          "title" | "goal" | "done_criteria" | "instructions" | "inputs" | "output_path" | "no_progress_steps"
+        >
       >
     }
   | { op: "remove_task"; stepId: string; taskId: string }
@@ -447,6 +465,7 @@ export function validatePlanFile(value: unknown): string[] {
         "tasks",
         "candidate_discussion",
         "candidate_selection",
+        "baseline",
       ])
       for (const key of Object.keys(rawStep))
         if (!allowedStep.has(key)) errors.push(errorAt(`${prefix}.${key}`, "unknown property"))
@@ -457,6 +476,15 @@ export function validatePlanFile(value: unknown): string[] {
         if (!nonEmptyString(rawStep[field])) errors.push(errorAt(`${prefix}.${field}`, "must be non-empty"))
       if (!["pending", "active", "done"].includes(String(rawStep.status)))
         errors.push(errorAt(`${prefix}.status`, "invalid status"))
+      if (
+        rawStep.baseline !== undefined &&
+        (!isRecord(rawStep.baseline) ||
+          !nonEmptyString(rawStep.baseline.baseline_id) ||
+          !nonEmptyString(rawStep.baseline.baseline_directory) ||
+          !/^[a-f0-9]{64}$/.test(String(rawStep.baseline.source_manifest_hash)) ||
+          (rawStep.baseline.source_revision !== null && !nonEmptyString(rawStep.baseline.source_revision)))
+      )
+        errors.push(errorAt(`${prefix}.baseline`, "invalid Step baseline"))
       if (!Array.isArray(rawStep.tasks)) {
         errors.push(errorAt(`${prefix}.tasks`, "must be an array"))
         continue
@@ -502,6 +530,7 @@ export function validatePlanFile(value: unknown): string[] {
           "goal",
           "done_criteria",
           "instructions",
+          "inputs",
           "output_path",
           "max_steps",
           "no_progress_steps",
@@ -522,6 +551,18 @@ export function validatePlanFile(value: unknown): string[] {
           if (!nonEmptyString(rawTask[field])) errors.push(errorAt(`${taskPrefix}.${field}`, "must be non-empty"))
         if (rawTask.instructions !== undefined && !nonEmptyString(rawTask.instructions))
           errors.push(errorAt(`${taskPrefix}.instructions`, "must be a non-empty string when provided"))
+        if (
+          rawTask.inputs !== undefined &&
+          (!Array.isArray(rawTask.inputs) ||
+            rawTask.inputs.some(
+              (input) =>
+                !isRecord(input) ||
+                !nonEmptyString(input.path) ||
+                (input.from_task !== undefined && !/^s[1-9]\d*_t[1-9]\d*$/.test(String(input.from_task))) ||
+                Object.keys(input).some((key) => key !== "path" && key !== "from_task"),
+            ))
+        )
+          errors.push(errorAt(`${taskPrefix}.inputs`, "invalid task inputs"))
         if (rawTask.reopen_reason !== undefined && !nonEmptyString(rawTask.reopen_reason))
           errors.push(errorAt(`${taskPrefix}.reopen_reason`, "must be a non-empty string when provided"))
         if (
@@ -628,7 +669,7 @@ function isValidDispatch(value: unknown): value is DispatchRecord {
     (value.deadline_at === undefined || validDateTime(value.deadline_at)) &&
     (value.no_progress_steps === undefined ||
       (Number.isSafeInteger(value.no_progress_steps) && Number(value.no_progress_steps) >= 1)) &&
-    (value.source === undefined || ["default", "profile", "plan", "parent"].includes(String(value.source))) &&
+    (value.source === undefined || ["default", "profile", "plan", "parent", "config"].includes(String(value.source))) &&
     (value.budget === undefined || isValidDispatchBudget(value.budget))
   )
 }
@@ -641,7 +682,7 @@ function isValidDispatchBudget(value: unknown): value is DispatchBudget {
     validDateTime(value.deadline_at) &&
     Number.isSafeInteger(value.no_progress_steps) &&
     Number(value.no_progress_steps) >= 1 &&
-    ["default", "profile", "plan", "parent"].includes(String(value.source))
+    ["default", "profile", "plan", "parent", "config"].includes(String(value.source))
   )
 }
 

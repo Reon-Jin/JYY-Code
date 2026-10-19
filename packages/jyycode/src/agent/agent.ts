@@ -199,14 +199,15 @@ export const layer = Layer.effect(
         }
 
         const subagentPermission = Permission.merge(defaults, user)
-        const subagentConfig = global.subagents !== undefined ? global.subagents : cfg.subagents
+        const subagentConfig = { ...cfg.subagents, ...global.subagents }
+        const subagentDeadline = Math.min(subagentConfig.timeout_ms ?? DEFAULT_AGENT_DEADLINE_MS, MAX_AGENT_DEADLINE_MS)
         for (const profile of enabledProfiles(resolveProfiles(subagentConfig?.profiles))) {
           const name = profileAgentName(profile.id)
           const profileSteps = Math.min(
             profile.steps ?? subagentConfig?.max_steps ?? DEFAULT_AGENT_MAX_STEPS,
             MAX_AGENT_STEPS,
           )
-          const profileDeadline = DEFAULT_AGENT_DEADLINE_MS
+          const profileDeadline = subagentDeadline
           const profileNoProgress = Math.min(
             profile.no_progress_steps ?? subagentConfig?.no_progress_steps ?? DEFAULT_AGENT_NO_PROGRESS_STEPS,
             MAX_AGENT_NO_PROGRESS_STEPS,
@@ -263,7 +264,7 @@ export const layer = Layer.effect(
           }
           if (item.mode === "subagent") {
             item.steps ??= DEFAULT_AGENT_MAX_STEPS
-            item.deadlineMs = DEFAULT_AGENT_DEADLINE_MS
+            item.deadlineMs = subagentDeadline
             item.noProgressSteps ??= DEFAULT_AGENT_NO_PROGRESS_STEPS
           }
           item.options = mergeDeep(item.options, value.options ?? {})

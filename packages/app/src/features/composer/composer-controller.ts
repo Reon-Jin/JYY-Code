@@ -66,6 +66,7 @@ export function createComposerController(input: ComposerControllerInput) {
   const [failure, setFailure] = createSignal<unknown>()
   const [lastFailedDraft, setLastFailedDraft] = createSignal<string>()
   let lastFailedAttachments: readonly ComposerAttachment[] = []
+  let lastFailedMode: "prompt" | "interrupt" = "prompt"
   let inFlight: Promise<void> | undefined
   let stopInFlight: Promise<void> | undefined
   let terminateInFlight: Promise<void> | undefined
@@ -138,6 +139,7 @@ export function createComposerController(input: ComposerControllerInput) {
           setDraft(text)
           setLastFailedDraft(text)
           lastFailedAttachments = attachments
+          lastFailedMode = "prompt"
           setFailure(cause)
         }
         throw cause
@@ -193,6 +195,7 @@ export function createComposerController(input: ComposerControllerInput) {
           setDraft(text)
           setLastFailedDraft(text)
           lastFailedAttachments = attachments
+          lastFailedMode = "interrupt"
           setFailure(cause)
         }
         throw cause
@@ -209,7 +212,9 @@ export function createComposerController(input: ComposerControllerInput) {
     const text = lastFailedDraft()
     if (text === undefined) return Promise.resolve()
     setDraft(text)
-    return send(text, undefined, lastFailedAttachments)
+    return lastFailedMode === "interrupt"
+      ? interruptAndSend(text, undefined, lastFailedAttachments)
+      : send(text, undefined, lastFailedAttachments)
   }
 
   function stop(): Promise<void> {

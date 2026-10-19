@@ -31,6 +31,7 @@ import {
   type PlanTaskMode,
   type PlanStep,
   type PlanTask,
+  type StepBaseline,
   type PlanUpdateInput,
   type PlanUpdateOp,
   type ProtocolResponse,
@@ -57,6 +58,7 @@ import {
   type WorkspaceReservation,
 } from "./child-workspace"
 import { markPlanSessionActive } from "./recovery"
+import { parseTaskInputs, validateTaskDependencies, validateTaskInputFiles } from "./task-inputs"
 import { runtimeMetricPayload, type RuntimeMetricInput } from "./runtime-event"
 import {
   applyWorkspaceMerge,
@@ -157,6 +159,7 @@ export type DispatchBrief = {
   goal: string
   done_criteria: string
   task_instructions?: string
+  inputs?: import("./schema").TaskInput[]
   /** Absolute child working directory; every relative path in the brief resolves against it. */
   workspace_root: string
   /** Absolute path resolved against workspace_root at dispatch time. */
@@ -226,6 +229,7 @@ export type ChildBudgetSnapshot = DispatchBudget
 
 export type ChildBudgetResolutionInput = {
   now?: number
+  timeoutMs?: number
   role?: Partial<Pick<LaunchSnapshot, "no_progress_steps">>
   task?: Pick<PlanTask, "no_progress_steps">
   parent?: Partial<DispatchBudget>
@@ -239,12 +243,14 @@ export function resolveChildBudget(input: ChildBudgetResolutionInput = {}): Chil
   const max_steps = MAX_AGENT_STEPS
 
   const deadlineCandidates: Array<{ value: number; source: DispatchBudgetSource }> = [
-    { value: DEFAULT_AGENT_DEADLINE_MS, source: "default" },
+    {
+      value: input.timeoutMs ?? DEFAULT_AGENT_DEADLINE_MS,
+      source: input.timeoutMs === undefined ? "default" : "config",
+    },
   ]
-  // The child wall-clock budget is runtime-owned. Profiles and plan authors
-  // may tune step-based safeguards, but they cannot shorten or extend this
-  // 30-minute dispatch deadline. A parent deadline remains an internal
-  // safety bound for nested execution.
+  // Only the user's runtime configuration controls the wall-clock budget.
+  // Model-authored Tasks and profiles cannot change it. Parent deadlines
+  // remain an internal safety bound for nested execution.
   if (input.parent?.deadline_at !== undefined) {
     const parentRemaining = Date.parse(input.parent.deadline_at) - now
     if (Number.isFinite(parentRemaining))
@@ -266,7 +272,7 @@ export function resolveChildBudget(input: ChildBudgetResolutionInput = {}): Chil
   const deadlineMs = Math.max(0, Math.min(MAX_AGENT_DEADLINE_MS, Math.floor(deadlineCandidate.value)))
   const no_progress_steps = Math.max(1, Math.min(MAX_AGENT_NO_PROGRESS_STEPS, Math.floor(noProgressCandidate.value)))
   const selectedSources = new Set([deadlineCandidate.source, noProgressCandidate.source])
-  const source = (["parent", "plan", "profile", "default"] as const).find((item) => selectedSources.has(item))!
+  const source = (["parent", "plan", "profile", "config", "default"] as const).find((item) => selectedSources.has(item))!
   return {
     max_steps,
     deadline_at: new Date(now + deadlineMs).toISOString(),
@@ -374,6 +380,7 @@ type ProtocolOptions = {
   activation?: PlanActivationStore
   ownerId?: string
   maxConcurrentChildren?: number
+  childTimeoutMs?: number
 }
 
 type WriteResult<T extends object> = { result: T; plan: PlanFile }
@@ -618,6 +625,7 @@ const CREATE_TASK_ALLOWED_FIELDS = new Set([
   "acceptance_criteria",
   "criteria",
   "instructions",
+  "inputs",
   "output_path",
   "no_progress_steps",
   "mode",
@@ -746,6 +754,7 @@ function normalizeCreateInput(input: unknown, workspaceRoot?: string): { value: 
         goal: taskGoal,
         done_criteria: taskDoneCriteria,
         ...(instructions ? { instructions } : {}),
+        inputs: parseTaskInputs(task.inputs),
         ...(outputPath ? { output_path: outputPath } : {}),
         ...(noProgressSteps !== undefined ? { no_progress_steps: noProgressSteps } : {}),
         ...(mode ? { mode } : {}),
@@ -857,7 +866,7 @@ function nextActionHint(plan: PlanFile, inboxPending: number) {
     return `${current.id} 有 ${rejected.length} 个 rejected 任务；请先用 Plan_update(reopen_task/edit_task) 修复后再 Dispatch_dispatch`
   const pending = current.tasks.filter((task) => task.status === "pending")
   if (pending.length)
-    return `${current.id} 有 ${pending.length} 个 pending 任务，可开始派发；多智能体模式请一次 Dispatch_dispatch 放入全部 ready 任务，不要分批`
+    return `${current.id} 有 ${pending.length} 个 pending 任务，可开始并行派发；同角色的 ready 任务一次 Dispatch_dispatch，异角色可在本 Step 分批派发，无需等待其他批次完成。保持最大独立任务集合，仅真实产物依赖移至后续 Step${current.tasks.length === 1 ? "；当前仅一个任务，请检查是否遗漏可并行的独立工作，确实不可拆时说明原因" : ""}`
   if (plan.status === "done") return "方案已完成，可向用户交付总结"
   return `${current.id} 已无可立即推进的任务，等待运行中任务汇报或审核`
 }
@@ -963,6 +972,7 @@ function createTask(input: CreateTaskInput, id: string, workspaceRoot?: string, 
     goal: requiredText(input.goal, "task.goal"),
     done_criteria: requiredText(input.done_criteria, "task.done_criteria"),
     ...(input.instructions ? { instructions: requiredText(input.instructions, "task.instructions") } : {}),
+    inputs: parseTaskInputs(input.inputs),
     ...(input.no_progress_steps !== undefined
       ? { no_progress_steps: Math.min(MAX_AGENT_NO_PROGRESS_STEPS, input.no_progress_steps) }
       : {}),
@@ -1130,6 +1140,7 @@ function applyOp(
       if (op.fields.done_criteria !== undefined)
         task.done_criteria = requiredText(op.fields.done_criteria, "done_criteria")
       if (op.fields.instructions !== undefined) task.instructions = requiredText(op.fields.instructions, "instructions")
+      if (op.fields.inputs !== undefined) task.inputs = parseTaskInputs(op.fields.inputs)
       for (const field of ["no_progress_steps"] as const) {
         const value = op.fields[field]
         if (value !== undefined && (!Number.isSafeInteger(value) || Number(value) < 1))
@@ -1387,6 +1398,7 @@ export class PlanProtocol {
   private readonly activities = sharedActivities
   private readonly activityEvents = sharedActivityEvents
   private readonly maxConcurrentChildren: number
+  private readonly childTimeoutMs?: number
 
   constructor(options: ProtocolOptions = {}) {
     this.store = options.store ?? defaultPlanStore
@@ -1405,6 +1417,7 @@ export class PlanProtocol {
     this.activation = options.activation ?? defaultPlanActivationStore
     this.ownerId = options.ownerId ?? activationOwnerId()
     this.maxConcurrentChildren = options.maxConcurrentChildren ?? DEFAULT_MAX_CONCURRENT_CHILDREN
+    this.childTimeoutMs = options.childTimeoutMs
   }
 
   private publish(event: Parameters<PlanEventHub["publish"]>[0]) {
@@ -1652,6 +1665,7 @@ export class PlanProtocol {
     const plan = this.store.read(this.path(ctx))
     const step = plan?.steps.find((item) => item.id === stepId)
     if (!step || !isStepComplete(step, ctx.workspaceRoot)) return [] as string[]
+    this.childWorkspace?.releaseStepBaseline(ctx.sessionId, step.id)
     const errors: string[] = []
     for (const task of step.tasks) {
       if (mergeStatus(task) !== "merged" || !task.dispatch?.workspace) continue
@@ -1899,6 +1913,7 @@ export class PlanProtocol {
           created_at: timestamp,
           updated_at: timestamp,
         }
+        validateTaskDependencies(plan)
         recomputeProgress(plan, ctx.workspaceRoot)
         return {
           mutate(target) {
@@ -1988,6 +2003,7 @@ export class PlanProtocol {
           throw error
         }
         finalizeCandidateGroups(draft)
+        validateTaskDependencies(draft)
         recomputeProgress(draft, ctx.workspaceRoot)
         draft.revision = latest.revision + 1
         draft.updated_at = nowIso(this.now)
@@ -2105,6 +2121,7 @@ export class PlanProtocol {
           )
         return { step, task }
       })
+      validateTaskDependencies(plan)
       const candidateSteps = [
         ...new Map(targets.filter(({ task }) => task.mode === "candidate").map(({ step }) => [step.id, step])).values(),
       ]
@@ -2190,6 +2207,7 @@ export class PlanProtocol {
         const childSessionId = resume ? task.dispatch!.child_session_id : `child_${ctx.sessionId}_${task.id}`
         const budget = resolveChildBudget({
           now: this.now(),
+          timeoutMs: this.childTimeoutMs,
           role,
           task,
           parent: ctx.parentBudget,
@@ -2200,6 +2218,7 @@ export class PlanProtocol {
           goal: task.goal,
           done_criteria: task.done_criteria,
           ...(task.instructions ? { task_instructions: task.instructions } : {}),
+          inputs: task.inputs ?? [],
           workspace_root: path.resolve(ctx.workspaceRoot),
           output_path: outputPath,
           mode: task.mode ?? "standard",
@@ -2267,14 +2286,49 @@ export class PlanProtocol {
         })
       }
       let launchConcurrency = this.maxConcurrentChildren
+      let stepBaseline = targets[0]?.step.baseline
       if (prepared.size) {
         if (this.childWorkspace) {
+          // Existing plans predate Step-level pins. Adopt their original shared
+          // baseline instead of capturing a parent that may contain early merges.
+          const prior = targets[0]!.step.tasks.flatMap((task) =>
+            task.dispatch?.workspace ? [task.dispatch.workspace] : [],
+          )
+          if (!stepBaseline && prior.length) {
+            const first = prior[0]!
+            if (
+              !first.baseline_id ||
+              !first.baseline_directory ||
+              !first.source_manifest_hash ||
+              prior.some(
+                (workspace) =>
+                  workspace.baseline_id !== first.baseline_id ||
+                  workspace.source_manifest_hash !== first.source_manifest_hash,
+              )
+            )
+              throw new PlanProtocolError({
+                code: ERROR_CODES.DISPATCH_UNAVAILABLE,
+                message: "当前旧版 Step 没有一致的原始基线，不能从已包含同 Step 产物的主工作区重新截取",
+                hint: "将尚未派发的任务移至后续 Step，完成当前任务的审核和合并后再继续。",
+              })
+            stepBaseline = {
+              baseline_id: first.baseline_id,
+              baseline_directory: first.baseline_directory,
+              source_manifest_hash: first.source_manifest_hash,
+              source_revision: first.source_revision ?? null,
+            } satisfies StepBaseline
+          }
           const preflightStartedAt = this.now()
           try {
             const preflight = await this.childWorkspace.preflight(
               [...prepared.values()].flatMap((item) => (item.reservation ? [item.reservation] : [])),
               ctx.abortSignal,
+              { sessionID: ctx.sessionId, stepID: targets[0]!.step.id, baseline: stepBaseline },
             )
+            stepBaseline = preflight?.baseline
+            for (const item of prepared.values()) {
+              if (item.reservation) item.dispatch.workspace = dispatchWorkspaceMetadata(item.reservation)
+            }
             launchConcurrency = effectiveConcurrency(this.maxConcurrentChildren, preflight?.manifest.total_bytes)
             this.metric(ctx.sessionId, {
               metric: "dispatch",
@@ -2294,8 +2348,18 @@ export class PlanProtocol {
                 hint: "降低本次并发 snapshot task 数量或先清理已完成 workspace 后重试；不会留下 staging 目录。",
                 retryable: true,
               })
-            if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error
+            // A missing fixed baseline must not be replaced by a newer parent
+            // snapshot that may contain this Step's early sibling merges.
+            throw error
           }
+        }
+        for (const { task } of targets) {
+          validateTaskInputFiles({
+            plan,
+            task,
+            workspaceRoot: ctx.workspaceRoot,
+            baselineRoot: stepBaseline?.baseline_directory ?? ctx.workspaceRoot,
+          })
         }
         const result = await this.write(ctx, (latest) => {
           ctx.abortSignal?.throwIfAborted()
@@ -2306,6 +2370,12 @@ export class PlanProtocol {
               hint: "先调用 Plan_create",
             })
           const next = clonePlan(latest)
+          const activeStep = next.steps.find((step) => step.id === targets[0]!.step.id)!
+          if (stepBaseline) {
+            if (activeStep.baseline && activeStep.baseline.source_manifest_hash !== stepBaseline.source_manifest_hash)
+              inputError("Step baseline changed during dispatch; reread the plan")
+            activeStep.baseline = stepBaseline
+          }
           for (const [taskId, item] of prepared) {
             const target = next.steps.flatMap((step) => step.tasks).find((task) => task.id === taskId)
             if (!target || (target.status !== "pending" && target.status !== "rejected"))

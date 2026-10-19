@@ -245,6 +245,6 @@ describe("workspace snapshot budget", () => {
     expect(result).toMatchObject({ ok: false, error: { code: "WORKSPACE_QUOTA_EXCEEDED" } })
     const plan = await protocol.read(context)
     expect(plan.ok && plan.plan?.steps[0]?.tasks[0]?.status).toBe("pending")
-    expect(fs.readdirSync(runtimeRoot)).toEqual([])
+    expect(fs.readdirSync(runtimeRoot).filter((name) => name !== ".locks")).toEqual([])
   })
 })

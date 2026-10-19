@@ -10,7 +10,7 @@ import { planFilePath } from "../../src/plan/schema"
 import { PlanStore } from "../../src/plan/store"
 import { collectPlanReferences } from "../../src/plan/workspace-sweeper"
 
-async function setup(root: string, runtimeRoot: string) {
+async function setup(root: string, runtimeRoot: string, withConsumer = false) {
   const starts = new Map<string, ChildStartInput>()
   const stopped: string[] = []
   const children = {
@@ -46,7 +46,23 @@ async function setup(root: string, runtimeRoot: string) {
             output_path: `${name}.md`,
           })),
         },
-        { goal: "Verify", done_criteria: "Verification complete" },
+        {
+          goal: "Verify",
+          done_criteria: "Verification complete",
+          ...(withConsumer
+            ? {
+                tasks: [
+                  {
+                    title: "Consume published input",
+                    goal: "Consume published input",
+                    done_criteria: "result.md ready",
+                    output_path: "result.md",
+                    inputs: [{ path: "early.md", from_task: "s1_t1" }],
+                  },
+                ],
+              }
+            : {}),
+        },
       ],
     }),
   ).toMatchObject({ ok: true })
@@ -87,6 +103,81 @@ async function setup(root: string, runtimeRoot: string) {
 }
 
 describe("Step workspace retention", () => {
+  it("hides early merges from later batches and retries, then publishes them to the next Step", async () => {
+    await using project = await tmpdir()
+    await using runtime = await tmpdir()
+    const f = await setup(project.path, runtime.path, true)
+    await f.approve("s1_t1")
+    expect(await f.protocol.merge(f.ctx, { task_id: "s1_t1" })).toMatchObject({ ok: true, status: "merged" })
+    expect(
+      await f.protocol.update(f.ctx, {
+        revision: (await f.read()).revision,
+        ops: [
+          {
+            op: "add_task",
+            stepId: "s1",
+            task: {
+              title: "Late batch",
+              goal: "Independent late batch",
+              done_criteria: "late.md ready",
+              output_path: "late.md",
+              inputs: [],
+            },
+          },
+        ],
+      }),
+    ).toMatchObject({ ok: true })
+    expect(await f.protocol.dispatch(f.ctx, { taskIds: ["s1_t3"], role: "general" })).toMatchObject({ ok: true })
+    const baseline = (await f.read()).steps[0]!.baseline!
+    expect(fs.existsSync(path.join(f.starts.get("s1_t3")!.brief.workspace_root, "early.md"))).toBe(false)
+    expect(await f.protocol.cancel(f.ctx, ["s1_t3"])).toMatchObject({ ok: true })
+    expect(await f.protocol.dispatch(f.ctx, { taskIds: ["s1_t3"], role: "general" })).toMatchObject({ ok: true })
+    expect(fs.existsSync(path.join(f.starts.get("s1_t3")!.brief.workspace_root, "early.md"))).toBe(false)
+    expect((await f.read()).steps[0]!.baseline).toEqual(baseline)
+    await f.approve("s1_t2")
+    await f.approve("s1_t3")
+    expect(await f.protocol.dispatch(f.ctx, { taskIds: ["s2_t1"], role: "general" })).toMatchObject({ ok: false })
+    expect(await f.protocol.merge(f.ctx, { task_id: "s1_t2" })).toMatchObject({ ok: true, status: "merged" })
+    expect(await f.protocol.dispatch(f.ctx, { taskIds: ["s2_t1"], role: "general" })).toMatchObject({ ok: false })
+    expect(await f.protocol.merge(f.ctx, { task_id: "s1_t3" })).toMatchObject({ ok: true, status: "merged" })
+    expect(
+      await f.protocol.update(f.ctx, {
+        revision: (await f.read()).revision,
+        ops: [
+          {
+            op: "edit_task",
+            stepId: "s2",
+            taskId: "s2_t1",
+            fields: { inputs: [{ path: "slow.md", from_task: "s1_t1" }] },
+          },
+        ],
+      }),
+    ).toMatchObject({ ok: true })
+    // A file's presence does not let a consumer claim a different producer.
+    expect(await f.protocol.dispatch(f.ctx, { taskIds: ["s2_t1"], role: "general" })).toMatchObject({
+      ok: false,
+      error: { code: "TASK_DEPENDENCY_INVALID" },
+    })
+    expect(
+      await f.protocol.update(f.ctx, {
+        revision: (await f.read()).revision,
+        ops: [
+          {
+            op: "edit_task",
+            stepId: "s2",
+            taskId: "s2_t1",
+            fields: { inputs: [{ path: "early.md", from_task: "s1_t1" }] },
+          },
+        ],
+      }),
+    ).toMatchObject({ ok: true })
+    expect(await f.protocol.dispatch(f.ctx, { taskIds: ["s2_t1"], role: "general" })).toMatchObject({ ok: true })
+    expect(fs.readFileSync(path.join(f.starts.get("s2_t1")!.brief.workspace_root, "early.md"), "utf8")).toBe(
+      "Artifact s1_t1",
+    )
+    expect((await f.read()).steps[1]!.baseline!.source_manifest_hash).not.toBe(baseline.source_manifest_hash)
+  })
+
   it("keeps an early merged child writable and releases both children after the last merge", async () => {
     await using project = await tmpdir()
     await using runtime = await tmpdir()

@@ -210,7 +210,8 @@ describe("file-backed plan protocol", () => {
 
     const read = await protocol.read(context(root))
     if (!read.ok || !read.plan) return
-    expect(read.plan.steps[0]?.tasks[0]?.status).toBe("rejected")
+    // Preparation now fails during preflight, before any durable reservation.
+    expect(read.plan.steps[0]?.tasks[0]?.status).toBe("pending")
   })
 
   it("starts every task in a dispatch wave concurrently", async () => {

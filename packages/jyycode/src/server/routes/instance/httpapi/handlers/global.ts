@@ -290,7 +290,14 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
 
     const configUpdate = Effect.fn("GlobalHttpApi.configUpdate")(function* (ctx) {
       const result = yield* config.updateGlobal(ctx.payload)
-      if (result.changed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
+      // Dispatch reads this setting fresh and snapshots its budget. Disposing
+      // live instances here would interrupt the very tasks whose limits stay fixed.
+      const timeoutOnly =
+        Object.keys(ctx.payload).length === 1 &&
+        ctx.payload.subagents !== undefined &&
+        Object.keys(ctx.payload.subagents).length === 1 &&
+        ctx.payload.subagents.timeout_ms !== undefined
+      if (result.changed && !timeoutOnly) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
       return result.info
     })
 

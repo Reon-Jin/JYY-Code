@@ -27,7 +27,7 @@ export const DEFAULT_BUDGETS: Readonly<Record<OperationClass, BudgetLimits>> = {
   git_network: { defaultMs: 300_000, hardCapMs: 900_000, graceMs: 5_000 },
   mcp_idle: { defaultMs: 60_000, hardCapMs: 120_000, graceMs: 3_000 },
   mcp_total: { defaultMs: 300_000, hardCapMs: 600_000, graceMs: 3_000 },
-  child_agent: { defaultMs: 1_800_000, hardCapMs: 3_600_000, graceMs: 15_000 },
+  child_agent: { defaultMs: 3_600_000, hardCapMs: 3_600_000, graceMs: 15_000 },
   workspace_cleanup: { defaultMs: 5_000, hardCapMs: 30_000, graceMs: 0 },
 }
 

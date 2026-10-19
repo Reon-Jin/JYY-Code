@@ -16,7 +16,7 @@ import { ConfigPermission } from "./permission"
  * prompt loop. */
 export const DEFAULT_AGENT_MAX_STEPS = 60
 export const MAX_AGENT_STEPS = 1024
-export const DEFAULT_AGENT_DEADLINE_MS = 30 * 60 * 1000
+export const DEFAULT_AGENT_DEADLINE_MS = 60 * 60 * 1000
 export const MAX_AGENT_DEADLINE_MS = 60 * 60 * 1000
 export const DEFAULT_AGENT_NO_PROGRESS_STEPS = 8
 export const MAX_AGENT_NO_PROGRESS_STEPS = 64

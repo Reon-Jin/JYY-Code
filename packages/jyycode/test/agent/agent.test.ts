@@ -198,6 +198,7 @@ it.instance(
           path.join(configDirectory, "jyycode.json"),
           JSON.stringify({
             subagents: {
+              timeout_ms: 20 * 60_000,
               profiles: [
                 defaultGeneralProfile,
                 {
@@ -221,6 +222,7 @@ it.instance(
       expect(agents.map((agent) => agent.name)).not.toContain(profileAgentName("project_review"))
       const globalReview = yield* load((svc) => svc.get(profileAgentName("global_review")))
       expect(globalReview?.description).toBe("Uses the global profile.")
+      expect(globalReview?.deadlineMs).toBe(20 * 60_000)
     }),
   {
     config: {
@@ -233,6 +235,45 @@ it.instance(
             description: "Uses the project profile.",
             prompt: "Project prompt",
             avatar: "file",
+            enabled: true,
+          },
+        ],
+      },
+    },
+  },
+)
+
+it.instance(
+  "a global timeout preserves project role profiles",
+  () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const previous = Global.Path.config
+      const configDirectory = path.join(test.directory, "timeout-config")
+      yield* Effect.promise(async () => {
+        await fs.mkdir(configDirectory, { recursive: true })
+        await Bun.write(
+          path.join(configDirectory, "jyycode.json"),
+          JSON.stringify({ subagents: { timeout_ms: 15 * 60_000 } }),
+        )
+      })
+      Global.Path.config = configDirectory
+      yield* Effect.addFinalizer(() => Effect.sync(() => (Global.Path.config = previous)))
+      const review = yield* load((svc) => svc.get(profileAgentName("project_review")))
+      expect(review?.description).toBe("Project review")
+      expect(review?.deadlineMs).toBe(15 * 60_000)
+    }),
+  {
+    config: {
+      subagents: {
+        profiles: [
+          defaultGeneralProfile,
+          {
+            id: "project_review",
+            name: "Project Review",
+            description: "Project review",
+            prompt: "Review the result",
+            avatar: "bug",
             enabled: true,
           },
         ],

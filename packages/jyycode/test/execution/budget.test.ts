@@ -4,6 +4,7 @@ import { ExecutionBudgetError, budgetFor, resolveExecutionBudget } from "@/execu
 describe("ExecutionBudget", () => {
   test("chooses the minimum of default/requested/hard-cap/parent remaining", () => {
     let now = 0
+    expect(resolveExecutionBudget({ operationClass: "child_agent", now: () => now }).effectiveMs).toBe(3_600_000)
     const parent = resolveExecutionBudget({ operationClass: "child_agent", requestedMs: 1000, now: () => now })
     now = 250
     const child = resolveExecutionBudget({

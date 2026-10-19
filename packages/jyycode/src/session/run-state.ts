@@ -10,6 +10,7 @@ import { SessionStatus } from "./status"
 import { releaseComputerSession } from "@/tool/computer/resources"
 
 export interface Interface {
+  readonly directory: (sessionID: SessionID) => Effect.Effect<string | undefined>
   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void, Session.BusyError>
   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
   readonly ensureRunning: (
@@ -33,6 +34,7 @@ export const layer = Layer.effect(
     const background = yield* BackgroundJob.Service
     const backgroundProcess = yield* Effect.serviceOption(BackgroundProcess.Service)
     const status = yield* SessionStatus.Service
+    const directories = new Map<SessionID, string>()
 
     const state = yield* InstanceState.make(
       Effect.fn("SessionRunState.state")(function* () {
@@ -58,9 +60,11 @@ export const layer = Layer.effect(
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
       if (existing) return existing
+      const directory = yield* InstanceState.directory
       const next = Runner.make<MessageV2.WithParts>(data.scope, {
         onIdle: Effect.gen(function* () {
           data.runners.delete(sessionID)
+          if (directories.get(sessionID) === directory) directories.delete(sessionID)
           yield* Effect.promise(() => releaseComputerSession(sessionID))
           yield* status.set(sessionID, { type: "idle" })
         }),
@@ -68,6 +72,7 @@ export const layer = Layer.effect(
         onInterrupt,
       })
       data.runners.set(sessionID, next)
+      directories.set(sessionID, directory)
       return next
     })
 
@@ -109,7 +114,11 @@ export const layer = Layer.effect(
         .pipe(Effect.catchTag("RunnerBusy", () => Effect.fail(busyError(sessionID))))
     })
 
-    return Service.of({ assertNotBusy, cancel, ensureRunning, startShell })
+    const directory = Effect.fn("SessionRunState.directory")((sessionID: SessionID) =>
+      Effect.sync(() => directories.get(sessionID)),
+    )
+
+    return Service.of({ directory, assertNotBusy, cancel, ensureRunning, startShell })
   }),
 )
 
