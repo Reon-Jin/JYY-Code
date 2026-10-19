@@ -184,7 +184,12 @@ const elog = EffectLogger.create({ service: "session.prompt" })
 
 export interface Interface {
   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
-  readonly wake: (input: { sessionID: SessionID; text: string; kind: string }) => Effect.Effect<MessageV2.WithParts>
+  readonly wake: (input: {
+    sessionID: SessionID
+    text: string
+    kind: string
+    visibleText?: string
+  }) => Effect.Effect<MessageV2.WithParts>
   readonly prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts, Image.Error>
   readonly loop: (input: LoopInput) => Effect.Effect<MessageV2.WithParts>
   readonly shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts, Session.BusyError>
@@ -400,7 +405,7 @@ export const layer = Layer.effect(
         resolvePromptParts: (template: string) => resolvePromptParts(template),
         prompt: (input: PromptInput) => prompt(input).pipe(Effect.catch(Effect.die)),
         loop: (input: LoopInput) => loop(input),
-        wake: (input: { sessionID: SessionID; text: string; kind: string }) => wake(input),
+        wake: (input: { sessionID: SessionID; text: string; kind: string; visibleText?: string }) => wake(input),
       } satisfies TaskPromptOps
     })
 
@@ -416,6 +421,7 @@ export const layer = Layer.effect(
       sessionID: SessionID
       text: string
       kind: string
+      visibleText?: string
     }) {
       const messages = yield* MessageV2.filterCompactedEffect(input.sessionID)
       const lastUser = messages.findLast((message) => message.info.role === "user")
@@ -431,6 +437,16 @@ export const layer = Layer.effect(
         model: lastUser.info.model,
       }
       yield* sessions.updateMessage(message)
+      if (input.visibleText?.trim()) {
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: message.id,
+          sessionID: input.sessionID,
+          type: "text",
+          text: input.visibleText,
+          metadata: { kind: input.kind, author: "main_agent" },
+        } satisfies MessageV2.TextPart)
+      }
       yield* sessions.updatePart({
         id: PartID.ascending(),
         messageID: message.id,

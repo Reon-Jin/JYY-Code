@@ -51,6 +51,34 @@ function longConversation(count: number): ConversationMessage[] {
 afterEach(cleanup)
 
 describe("MessageTimeline", () => {
+  it("keeps every child chat round visible while hiding follow-up runtime context", () => {
+    const [messages, setMessages] = createSignal<ConversationMessage[]>([])
+    const { container } = render(() => <MessageTimeline messages={messages()} />)
+    const turns = ["首次完整任务说明", "初稿已完成", "请补充示例", "示例已补充", "再说明分页边界", "分页说明已补充"]
+    for (const [index, text] of turns.entries()) {
+      const message: Message =
+        index % 2 === 0
+          ? { ...info, id: `msg_child_${index}`, time: { created: index + 1 } }
+          : { ...assistantInfo, id: `msg_child_${index}`, time: { created: index + 1, completed: index + 2 } }
+      const parts: Part[] = [{ id: `p_child_${index}`, sessionID, messageID: message.id, type: "text", text }]
+      if (index > 0 && index % 2 === 0)
+        parts.push({
+          id: `p_context_${index}`,
+          sessionID,
+          messageID: message.id,
+          type: "text",
+          synthetic: true,
+          text: "Current run_id: internal-runtime-context",
+          metadata: { kind: "plan_revision_context" },
+        })
+      setMessages((current) => [...current, conversation(parts, message)])
+      for (const previous of turns.slice(0, index + 1)) expect(screen.getByText(previous)).toBeVisible()
+    }
+    expect(container.querySelectorAll(".conversation-message")).toHaveLength(6)
+    expect(screen.getAllByText("首次完整任务说明")).toHaveLength(1)
+    expect(screen.queryByText(/internal-runtime-context/)).not.toBeInTheDocument()
+  })
+
   it("unmounts the activity animation on stop even if the last assistant step has no final answer", () => {
     const [running, setRunning] = createSignal(true)
     const { container } = render(() => <MessageTimeline running={running()} messages={[

@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
-import { clonePlan, planFilePath, type DispatchRecord, type PlanFile, type PlanTask } from "./schema"
+import { clonePlan, isStepComplete, planFilePath, type DispatchRecord, type PlanFile, type PlanTask } from "./schema"
 import { PlanStore, defaultPlanStore } from "./store"
 import { PlanInbox, defaultPlanInbox } from "./events"
 import { childTerminationRequest, type ChildController } from "./protocol"
@@ -265,9 +265,8 @@ export class PlanRecovery {
       canonicalChild === canonicalBaseline
     )
       throw new Error("recorded merge workspace resolves outside the owning runtime root")
-    // A reported/approved task has no useful work left in the child loop. If
-    // recovery starts without a child controller, settle the durable
-    // activation before allowing merge cleanup to remove its workspace.
+    // The entire Step is complete. Settle idle durable activations before
+    // allowing cleanup to remove the retained collaboration workspaces.
     if (!(await this.isChildActive(task.dispatch?.child_session_id ?? ""))) await this.settleActivation(task)
     const reservation = this.childWorkspace.reserve(sessionId, task.id)
     const result = await this.workspaceCleanup.run({
@@ -341,7 +340,13 @@ export class PlanRecovery {
     this.record({ sessionId, taskId, phase: "reconcile", outcome: "error" })
   }
 
-  private async reconcileMerge(sessionId: string, task: PlanTask, result: RecoveryResult) {
+  private stepCompleteForTask(sessionId: string, taskId: string) {
+    const plan = this.store.read(taskPath(this.workspaceRoot, sessionId))
+    const step = plan?.steps.find((item) => item.tasks.some((task) => task.id === taskId))
+    return step !== undefined && isStepComplete(step, this.workspaceRoot)
+  }
+
+  private async reconcileMerge(sessionId: string, task: PlanTask, result: RecoveryResult, deferred?: Set<string>) {
     const merge = task.merge
     if (!merge) return false
     if (
@@ -354,6 +359,10 @@ export class PlanRecovery {
 
     if (merge.status === "merged") {
       if (merge.cleanup === "completed" || task.dispatch?.workspace?.mode === "shared_compat") return false
+      if (!this.stepCompleteForTask(sessionId, task.id)) {
+        deferred?.add(task.id)
+        return true
+      }
       try {
         await this.cleanupMergeWorkspace(sessionId, task)
         await this.update(sessionId, task.id, (current) => {
@@ -482,6 +491,10 @@ export class PlanRecovery {
       this.record({ sessionId, taskId: task.id, phase: "settle", outcome: "error" })
       return true
     }
+    if (!this.stepCompleteForTask(sessionId, task.id)) {
+      deferred?.add(task.id)
+      return true
+    }
     try {
       await this.cleanupMergeWorkspace(sessionId, task)
       await this.update(sessionId, task.id, (current) => {
@@ -530,8 +543,9 @@ export class PlanRecovery {
     const plan = this.store.read(taskPath(this.workspaceRoot, rootSessionId))
     if (!plan) return result
 
+    const deferred = new Set<string>()
     for (const task of plan.steps.flatMap((step) => step.tasks)) {
-      if (await this.reconcileMerge(rootSessionId, task, result)) continue
+      if (await this.reconcileMerge(rootSessionId, task, result, deferred)) continue
       const dispatch = task.dispatch
       if (!dispatch) continue
       const lifecycle = dispatchLifecycle(dispatch)
@@ -648,6 +662,12 @@ export class PlanRecovery {
         }
       }
       await this.reject(rootSessionId, task, `${lifecycle} lifecycle requires recovery`, result)
+    }
+    // Recovering the last merge can complete a Step after its earlier merged
+    // siblings were inspected. Release those retained workspaces in this pass.
+    const latest = this.store.read(taskPath(this.workspaceRoot, rootSessionId))
+    for (const task of latest?.steps.flatMap((step) => step.tasks) ?? []) {
+      if (deferred.has(task.id)) await this.reconcileMerge(rootSessionId, task, result)
     }
     return result
   }

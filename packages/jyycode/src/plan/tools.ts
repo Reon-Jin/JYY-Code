@@ -503,10 +503,13 @@ function wakeBlackboardRecipients(
           .wake({
             sessionID: recipient.sessionID,
             kind: recipient.role === "main" ? "blackboard_agent_message" : "blackboard_direct_message",
+            ...(recipient.role === "sub_agent" && message.authorKind === "main_agent"
+              ? { visibleText: message.body }
+              : {}),
             text:
               recipient.role === "main"
                 ? "Blackboard 有新的子 Agent 消息。请调用 Blackboard 阅读全部当前 Step 消息；必要时可使用 Blackboard_Reply 回复。"
-                : "Blackboard 收到与你的 Task 有关的新消息。请调用 Blackboard 阅读并处理；完成后继续当前任务。",
+                : "Blackboard 收到与你的 Task 有关的新消息。请调用 Blackboard 阅读，按本轮要求回复或修改；单纯追问只需回答，不要重新执行任务或重复 Report。",
           })
           .pipe(Effect.ignore),
       ).pipe(Effect.asVoid),
@@ -705,35 +708,23 @@ export function childLaunchPrompt(brief: DispatchBrief, role: LaunchSnapshot) {
   ].join("\n\n")
 }
 
-type RetryFeedback = { review_feedback: string; issues: string[] }
-
-function formatRetryPrompt(feedback: RetryFeedback, runId: string) {
-  return [
-    "## Revision Request",
-    "The main Agent rejected the previous report. Apply this feedback to the existing work, then resubmit the corrected result with Report.",
-    `Use this exact current dispatch run_id in the next Report: ${runId}`,
-    "Do not reuse the run_id from the original dispatch brief.",
-    "",
-    feedback.review_feedback.trim(),
-    ...(feedback.issues.length > 0
-      ? ["", "Reported issues:", ...feedback.issues.map((issue) => `- ${issue.trim()}`)]
-      : []),
-  ].join("\n")
-}
-
-/** User-visible prompts sent after the initial task prompt, one per review round. */
-export function childRetryPrompts(brief: DispatchBrief) {
-  const history = brief.review_feedback_history?.length
-    ? brief.review_feedback_history
-    : brief.previous_feedback
-      ? [brief.previous_feedback]
-      : []
-  return history.map((feedback) => formatRetryPrompt(feedback, brief.run_id))
-}
-
-/** The latest retry prompt, retained as a convenient single-round helper. */
+/** Earlier rounds already live in the child conversation; append only the latest feedback. */
 export function childRetryPrompt(brief: DispatchBrief) {
-  return childRetryPrompts(brief).at(-1)
+  return (brief.review_feedback_history?.at(-1) ?? brief.previous_feedback)?.review_feedback.trim()
+}
+
+export function childRetryParts(brief: DispatchBrief) {
+  const feedback = childRetryPrompt(brief)
+  if (!feedback) throw new Error("A continued child task requires review feedback")
+  return [
+    { type: "text" as const, text: feedback },
+    {
+      type: "text" as const,
+      text: `<system-reminder>Continue the existing work, then submit Report with the current run_id: ${brief.run_id}. Earlier run IDs are stale.</system-reminder>`,
+      synthetic: true,
+      metadata: { kind: "plan_revision_context" },
+    },
+  ]
 }
 
 export function childLaunchParts(brief: DispatchBrief, role: LaunchSnapshot) {
@@ -870,13 +861,11 @@ function protocolFor(
     runtime.bridge.fork(
       Effect.gen(function* () {
         if (continuation) {
-          const retryPrompt = childRetryPrompt(input.brief)
-          if (!retryPrompt) throw new Error("A continued child task requires review feedback")
           yield* ops.prompt({
             sessionID: input.childSessionId as SessionID,
             agent: profileAgentName(input.role.id),
             noReply: true,
-            parts: [{ type: "text", text: retryPrompt }],
+            parts: childRetryParts(input.brief),
           })
         } else {
           // Persist the visible initial task before entering the model loop.
@@ -886,14 +875,6 @@ function protocolFor(
             noReply: true,
             parts: childLaunchParts(input.brief, input.role),
           })
-          for (const retryPrompt of childRetryPrompts(input.brief)) {
-            yield* ops.prompt({
-              sessionID: input.childSessionId as SessionID,
-              agent: profileAgentName(input.role.id),
-              noReply: true,
-              parts: [{ type: "text", text: retryPrompt }],
-            })
-          }
         }
         yield* ops.loop({ sessionID: input.childSessionId as SessionID })
       }).pipe(

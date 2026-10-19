@@ -10,7 +10,7 @@ import {
 } from "./workspace-cleanup"
 import { leaseIsExpired, leaseIsRetained, readWorkspaceLease, type WorkspaceLease } from "./workspace-lease"
 import { assertManifestIdentity, assertRuntimePath, canonicalPath } from "./workspace-path"
-import { readPlanFileSync, type PlanFile, type PlanTask } from "./schema"
+import { isStepComplete, readPlanFileSync, type PlanFile, type PlanTask } from "./schema"
 import { directoryBytes } from "./workspace-budget"
 
 const log = Log.create({ service: "workspace-sweeper" })
@@ -310,25 +310,28 @@ export function collectPlanReferences(
         continue
       }
       if (!plan) continue
-      for (const task of plan.steps.flatMap((step) => step.tasks)) {
-        const active = planTaskIsActive(task, plan.updated_at, now)
-        const reference: PlanReference = {
-          active,
-          terminal: !active,
-          rootSessionId: session.name,
-          taskId: task.id,
-          reason: active ? "PLAN_ACTIVE" : "TERMINAL_PLAN_REFERENCE",
+      for (const step of plan.steps)
+        for (const task of step.tasks) {
+          const active =
+            (task.merge?.status === "merged" && !task.dispatch?.cancelled_at && !isStepComplete(step, workspaceRoot)) ||
+            planTaskIsActive(task, plan.updated_at, now)
+          const reference: PlanReference = {
+            active,
+            terminal: !active,
+            rootSessionId: session.name,
+            taskId: task.id,
+            reason: active ? "PLAN_ACTIVE" : "TERMINAL_PLAN_REFERENCE",
+          }
+          const values = [
+            task.dispatch?.workspace?.directory,
+            task.dispatch?.workspace?.baseline_directory,
+            task.dispatch?.workspace?.baseline_manifest_path,
+            task.merge?.journal_directory,
+          ]
+          for (const runtimeRoot of runtimeRoots) {
+            for (const value of values) addPlanReference(references, runtimeRoot, value, reference)
+          }
         }
-        const values = [
-          task.dispatch?.workspace?.directory,
-          task.dispatch?.workspace?.baseline_directory,
-          task.dispatch?.workspace?.baseline_manifest_path,
-          task.merge?.journal_directory,
-        ]
-        for (const runtimeRoot of runtimeRoots) {
-          for (const value of values) addPlanReference(references, runtimeRoot, value, reference)
-        }
-      }
     }
   }
   return references

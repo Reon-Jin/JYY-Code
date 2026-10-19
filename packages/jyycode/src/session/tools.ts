@@ -520,7 +520,12 @@ export interface TaskPromptOps {
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
   loop(input: SessionPrompt.LoopInput): Effect.Effect<MessageV2.WithParts>
-  wake(input: { sessionID: SessionID; text: string; kind: string }): Effect.Effect<MessageV2.WithParts>
+  wake(input: {
+    sessionID: SessionID
+    text: string
+    kind: string
+    visibleText?: string
+  }): Effect.Effect<MessageV2.WithParts>
   /** Runtime-injected run id for the file-backed Report protocol. */
   agentRunID?: string
 }

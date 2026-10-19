@@ -8,7 +8,7 @@ import { Identifier } from "@/id/id"
 import { SessionTable } from "@/session/session.sql"
 import { SessionID } from "@/session/schema"
 import { Database } from "@/storage/db"
-import { readPlanFileSync, type PlanFile, type PlanStep } from "./schema"
+import { isStepComplete, readPlanFileSync, type PlanFile, type PlanStep } from "./schema"
 import {
   BlackboardMessageTable,
   BlackboardMessageTaskTable,
@@ -598,6 +598,8 @@ function makeService(bus: Bus.Interface): Interface {
     }
 
     add(rootSession.id as SessionID, "main")
+    // Historical messages must not restart children after Step-wide cleanup.
+    if (step.id !== plan.current_step || isStepComplete(step, rootSession.directory)) return [...recipients.values()]
     const targets = new Set(message.taskIDs)
     for (const task of step.tasks) {
       const sessionID = task.dispatch?.child_session_id as SessionID | undefined

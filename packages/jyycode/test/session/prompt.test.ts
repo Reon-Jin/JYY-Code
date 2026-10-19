@@ -62,6 +62,8 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventRuntime } from "@/event-runtime"
 import { clearChildBudget, defaultPlanProtocol, registerChildBudget, resolveChildBudget } from "../../src/plan/protocol"
 import { childExecutionLimiter } from "../../src/plan/child-execution"
+import { childLaunchParts, childRetryParts } from "../../src/plan/tools"
+import type { DispatchBrief } from "../../src/plan/protocol"
 
 void Log.init({ print: false })
 
@@ -824,6 +826,87 @@ it.instance("repairs a truncated tool call with a truncation-specific message", 
     expect(result.info.role).toBe("assistant")
     if (result.info.role === "assistant") expect(result.info.finish).toBe("stop")
   }),
+)
+
+it.instance(
+  "keeps every child conversation round and sends the full assignment only once",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const parent = yield* sessions.create({ title: "Parent" })
+      const child = yield* sessions.create({ parentID: parent.id, title: "Persistent child" })
+      const brief: DispatchBrief = {
+        run_id: "run__ses_parent__s1_t1",
+        task_title: "Write notes",
+        goal: "Document the API",
+        done_criteria: "The notes cover the API",
+        task_instructions: "Original detailed assignment marker",
+        workspace_root: child.directory,
+        output_path: path.join(child.directory, "notes.md"),
+        step_context: {
+          plan_goal: "Document",
+          step_id: "s1",
+          step_title: "Write",
+          step_goal: "Write",
+          step_done_criteria: "Accepted",
+        },
+        report_format: "Report(...)",
+        step_directory: [],
+      }
+      yield* llm.text("The first draft is ready.")
+      yield* prompt.prompt({
+        sessionID: child.id,
+        agent: "build",
+        parts: childLaunchParts(brief, {
+          id: "general",
+          name: "General",
+          description: "General",
+          prompt: "Original role instructions marker",
+          avatar: "bot",
+        }),
+      })
+      const original = yield* sessions.messages({ sessionID: child.id })
+      const originalIds = original.map((message) => message.info.id)
+      for (const [index, feedback] of ["Add examples.", "Clarify pagination."].entries()) {
+        brief.run_id = `run__ses_parent__s1_t1__round${index + 1}`
+        brief.review_feedback_history = [
+          ...(brief.review_feedback_history ?? []),
+          { review_feedback: feedback, issues: [] },
+        ]
+        yield* llm.text(`Updated draft ${index + 1}.`)
+        if (index === 0) yield* prompt.prompt({ sessionID: child.id, agent: "build", parts: childRetryParts(brief) })
+        else
+          yield* prompt.wake({
+            sessionID: child.id,
+            kind: "blackboard_direct_message",
+            visibleText: feedback,
+            text: "Answer this follow-up in the existing conversation.",
+          })
+      }
+      const history = yield* sessions.messages({ sessionID: child.id })
+      for (const id of originalIds) expect(history.some((message) => message.info.id === id)).toBe(true)
+      expect(history.filter((message) => message.info.role === "user")).toHaveLength(3)
+      expect(history.filter((message) => message.info.role === "assistant")).toHaveLength(3)
+      const visibleUsers = history
+        .filter((message) => message.info.role === "user")
+        .map((message) =>
+          message.parts
+            .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic)
+            .map((part) => part.text)
+            .join("\n"),
+        )
+      expect(visibleUsers.filter((text) => text.includes("Original detailed assignment marker"))).toHaveLength(1)
+      expect(visibleUsers).toEqual(expect.arrayContaining(["Add examples.", "Clarify pagination."]))
+      const inputs = yield* llm.inputs
+      expect(inputs).toHaveLength(3)
+      expect(JSON.stringify(inputs[2])).toContain("The first draft is ready.")
+      expect(JSON.stringify(inputs[2])).toContain("Updated draft 1.")
+      expect(JSON.stringify(inputs[2])).toContain("Add examples.")
+      expect(JSON.stringify(inputs[2])).toContain("Clarify pagination.")
+    }),
+  60_000,
 )
 
 it.instance("multi-agent roots tolerate preflight calls before creating a missing plan", () =>

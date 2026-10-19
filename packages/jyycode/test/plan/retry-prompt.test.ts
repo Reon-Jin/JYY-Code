@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { childLaunchParts, childRetryPrompt, childRetryPrompts } from "../../src/plan/tools"
+import { childLaunchParts, childRetryParts, childRetryPrompt } from "../../src/plan/tools"
 import type { DispatchBrief } from "../../src/plan/protocol"
 
 function brief(): DispatchBrief {
@@ -46,15 +46,15 @@ const role = {
 }
 
 describe("multi-agent review retry prompts", () => {
-  it("emits one follow-up prompt for every persisted review round", () => {
-    const prompts = childRetryPrompts(brief())
-
-    expect(prompts).toHaveLength(2)
-    expect(prompts[0]).toContain("Add the missing API examples.")
-    expect(prompts[1]).toContain("Also cover the pagination edge case.")
-    expect(childRetryPrompt(brief())).toContain("Also cover the pagination edge case.")
-    expect(childRetryPrompt(brief())).toContain("run__ses_root__s1_t1")
-    expect(childRetryPrompt(brief())).toContain("Do not reuse the run_id from the original dispatch brief")
+  it("appends only the latest feedback as a normal user message", () => {
+    const parts = childRetryParts(brief())
+    expect(childRetryPrompt(brief())).toBe("Also cover the pagination edge case.")
+    expect(parts[0]).toEqual({ type: "text", text: "Also cover the pagination edge case." })
+    expect(parts[1]).toMatchObject({ synthetic: true, metadata: { kind: "plan_revision_context" } })
+    expect(parts[1]?.text).toContain("run__ses_root__s1_t1")
+    expect(JSON.stringify(parts)).not.toContain("Add the missing API examples.")
+    expect(JSON.stringify(parts)).not.toContain("Read src/api.ts")
+    expect(JSON.stringify(parts)).not.toContain("Role Instructions")
   })
 
   it("keeps all review feedback out of the initial task prompt and metadata", () => {

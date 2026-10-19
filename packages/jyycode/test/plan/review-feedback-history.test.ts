@@ -123,6 +123,9 @@ describe("review feedback history", () => {
         async start(input) {
           starts.push(input)
         },
+        async resume(input) {
+          starts.push(input)
+        },
         async terminate() {},
       },
     })

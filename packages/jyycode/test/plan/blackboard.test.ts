@@ -373,12 +373,61 @@ it.instance("resolves participants, associations, replies, cursors, mentions, an
     nextPlan.steps[1]!.status = "active"
     const nextPlanPath = path.join(ctx.directory, ".jyycode", "plan", domainRootSessionID, "plan.json")
     yield* Effect.promise(() => fs.writeFile(nextPlanPath, JSON.stringify(nextPlan)))
+    expect(yield* board.recipientsForMessage(mainReply)).toEqual([])
     const nextMessage = yield* board.postUser({ rootSessionID: domainRootSessionID, message: "new step" })
     expect(nextMessage.stepID).toBe("s2")
     const historical = yield* board.listUser({ rootSessionID: domainRootSessionID, stepID: "s1" })
     expect(historical.readonly).toBe(true)
     const oldStepAgent = yield* Effect.exit(board.postAgent({ sessionID: domainChildASessionID, message: "old step" }))
     expect(Exit.isFailure(oldStepAgent)).toBe(true)
+  }),
+)
+
+it.instance("continues addressing an approved child until its Step completes", () =>
+  Effect.gen(function* () {
+    const ctx = yield* InstanceState.context
+    const retainedRootID = SessionID.make("ses_retained_root")
+    const retainedChildAID = SessionID.make("ses_retained_a")
+    const retainedChildBID = SessionID.make("ses_retained_b")
+    const retained = structuredClone(domainPlan) as any
+    retained.steps[0].tasks[0].dispatch.child_session_id = retainedChildAID
+    retained.steps[0].tasks[1].dispatch.child_session_id = retainedChildBID
+    retained.steps[0].tasks[0].status = "approved"
+    yield* setupSessions({
+      directory: ctx.directory,
+      projectID: ctx.project.id,
+      rootSessionID: retainedRootID,
+      childSessionIDs: [retainedChildAID, retainedChildBID],
+      plan: retained,
+    })
+    const board = yield* Blackboard.Service
+    const message = yield* board.postAgent({
+      sessionID: retainedChildBID,
+      taskIDs: ["s1_t1"],
+      message: "Please clarify the artifact",
+    })
+    expect(yield* board.recipientsForMessage(message)).toContainEqual({
+      sessionID: retainedChildAID,
+      role: "sub_agent",
+    })
+    yield* board.readAgent(retainedChildAID)
+    const reply = yield* board.postAgent({
+      sessionID: retainedChildAID,
+      replyTo: message.id,
+      message: "Here is the clarification",
+    })
+    expect(yield* board.recipientsForMessage(reply)).toContainEqual({
+      sessionID: retainedChildBID,
+      role: "sub_agent",
+    })
+    for (const task of retained.steps[0].tasks) task.status = "approved"
+    yield* Effect.promise(() =>
+      fs.writeFile(
+        path.join(ctx.directory, ".jyycode", "plan", retainedRootID, "plan.json"),
+        JSON.stringify(retained),
+      ),
+    )
+    expect(yield* board.recipientsForMessage(message)).toEqual([{ sessionID: retainedRootID, role: "main" }])
   }),
 )
 

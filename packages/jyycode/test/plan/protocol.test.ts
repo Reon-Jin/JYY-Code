@@ -426,8 +426,8 @@ describe("file-backed plan protocol", () => {
     if (!read.ok || !read.plan) return
     expect(read.plan.steps[0]?.tasks[0]).toMatchObject({
       status: "pending",
-      dispatch: null,
-      report: null,
+      dispatch: { child_session_id: dispatched.ok ? dispatched.dispatched[0]?.child_session_id : undefined },
+      report: { summary: "old", review_feedback: "验收标准已更新，需要重新执行" },
       reopen_reason: "验收标准已更新，需要重新执行",
     })
   })
@@ -856,6 +856,9 @@ describe("file-backed plan protocol", () => {
           const state = await protocol.read(context(root))
           statusAtStart = state.ok ? state.plan?.steps[0]?.tasks[0]?.status : undefined
         },
+        async resume(input) {
+          brief = input.brief
+        },
         async terminate() {},
       },
     })
@@ -926,6 +929,9 @@ describe("file-backed plan protocol", () => {
           return input.childSessionId
         },
         async start(input) {
+          starts.push(input)
+        },
+        async resume(input) {
           starts.push(input)
         },
         async terminate() {},

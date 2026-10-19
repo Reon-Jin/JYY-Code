@@ -847,7 +847,8 @@ function nextActionHint(plan: PlanFile, inboxPending: number) {
     }
   }
   const reported = plan.steps.flatMap((step) => step.tasks).filter((task) => task.status === "reported")
-  if (reported.length) return `有 ${reported.length} 个任务待审核：${reported.map((task) => task.id).join("、")}；立即逐个检查产物并用 Plan_update(review_task) 审核，不要等待同 Step 其他任务完成；驳回时提供具体 feedback，运行时会立即续派返修`
+  if (reported.length)
+    return `有 ${reported.length} 个任务待审核：${reported.map((task) => task.id).join("、")}；立即逐个检查产物并用 Plan_update(review_task) 审核，不要等待同 Step 其他任务完成；驳回时提供具体 feedback，运行时会立即续派返修`
   const rejected = current.tasks.filter((task) => task.status === "rejected")
   const resumableRejected = rejected.filter((task) => hasReviewContinuation(task))
   if (resumableRejected.length)
@@ -1171,12 +1172,31 @@ function applyOp(
           hint: "只有已汇报或已审核的终态任务可以显式 reopen_task",
         })
       const reason = requiredText(op.reason, "reason")
-      // A model may follow an older hint and reopen a review rejection before
-      // dispatching it again. Preserve the report, feedback history, and child
-      // session in that case so the next Dispatch_dispatch can still resume
-      // the same conversation. Reopen remains a true reset for every other
-      // terminal state and for runtime failures without review feedback.
+      // Older models may reopen a rejection before dispatching its feedback.
       if (task.status === "rejected" && hasReviewContinuation(task)) {
+        task.status = "pending"
+        task.reopen_reason = reason
+        return
+      }
+      // Reopening reported work is another turn in the same conversation.
+      // Clearing dispatch here silently sends the UI to a new child session.
+      if (
+        mode === "multi" &&
+        (task.mode ?? "standard") === "standard" &&
+        task.dispatch?.child_session_id &&
+        task.report
+      ) {
+        if (task.dispatch.cancelled_at !== null || task.merge?.cleanup === "completed")
+          throw new PlanProtocolError({
+            code: ERROR_CODES.INVALID_STATE,
+            message: "原子任务已释放，无法继续原会话",
+            hint: "保留原会话记录；如需全新执行，请通过 add_task 创建新任务",
+          })
+        task.report.review_feedback = reason
+        task.report.review_feedback_history = [
+          ...(task.report.review_feedback_history ?? []),
+          { review_feedback: reason, issues: [...task.report.issues] },
+        ]
         task.status = "pending"
         task.reopen_reason = reason
         return
@@ -1627,6 +1647,21 @@ export class PlanProtocol {
     })
   }
 
+  /** Early merges keep their child sessions writable for same-Step Blackboard collaboration. */
+  private async cleanupCompletedStepWorkspaces(ctx: PlanExecutionContext, stepId: string) {
+    const plan = this.store.read(this.path(ctx))
+    const step = plan?.steps.find((item) => item.id === stepId)
+    if (!step || !isStepComplete(step, ctx.workspaceRoot)) return [] as string[]
+    const errors: string[] = []
+    for (const task of step.tasks) {
+      if (mergeStatus(task) !== "merged" || !task.dispatch?.workspace) continue
+      if (task.dispatch.workspace.mode !== "shared_compat" && task.merge?.cleanup !== "completed")
+        errors.push(...(await this.cleanupTaskWorkspace(ctx, task.id)))
+      else await this.settleTaskActivation(task)
+    }
+    return errors
+  }
+
   private async cleanupTaskWorkspace(
     ctx: PlanExecutionContext,
     taskId: string,
@@ -1982,22 +2017,8 @@ export class PlanProtocol {
         if (review.result !== "rejected") continue
         const latest = this.store.read(this.path(ctx))
         const task = latest?.steps.flatMap((step) => step.tasks).find((item) => item.id === review.taskId)
-        // A review rejection is a continuation request, not a new task. Keep
-        // the child session and its workspace alive when the runtime can
-        // append a prompt to the existing session. Legacy controllers without
-        // resume support retain the old cleanup-and-recreate behavior.
-        const canResume = this.children?.resume !== undefined && hasReviewContinuation(task)
-        if (!canResume) {
-          const cleanupErrors = await this.cleanupTaskWorkspace(ctx, review.taskId)
-          if (cleanupErrors.length) {
-            autoRetryFailed.push({
-              taskIds: [review.taskId],
-              role: "unknown",
-              message: `workspace cleanup failed: ${cleanupErrors.join("; ")}`,
-            })
-            continue
-          }
-        }
+        // Keep the conversation and workspace even when continuation is
+        // unavailable. dispatch reports that failure without recreating it.
         const role = task?.dispatch?.role?.id
         if (!role || task.mode === "candidate") {
           autoRetrySkipped.push(review.taskId)
@@ -2015,6 +2036,7 @@ export class PlanProtocol {
         }
         autoDispatched.push(...retry.dispatched)
       }
+      for (const step of result.plan.steps) await this.cleanupCompletedStepWorkspaces(ctx, step.id)
       const finalPlan = this.store.read(this.path(ctx))
       return {
         ok: true,
@@ -2137,10 +2159,13 @@ export class PlanProtocol {
             "派发型任务必须提供 output_path 与 done_criteria",
           )
         if (!role) throw new Error("Dispatch_dispatch role resolution failed")
-        const resume =
-          (task.status === "rejected" || task.status === "pending") &&
-          hasReviewContinuation(task) &&
-          this.children?.resume !== undefined
+        const resume = hasReviewContinuation(task)
+        if (resume && !this.children?.resume)
+          throw new PlanProtocolError({
+            code: ERROR_CODES.DISPATCH_UNAVAILABLE,
+            message: `Task ${task.id} requires continuation of its original child session`,
+            hint: "The child controller must support resume; preserve its conversation and workspace instead of recreating the task.",
+          })
         const existingWorkspace = resume ? this.recordedWorkspace(ctx, task) : undefined
         if (
           resume &&
@@ -3214,11 +3239,7 @@ export class PlanProtocol {
           hint: "redispatch the task before merging it",
         })
       if (mergeStatus(task) === "merged") {
-        let cleanupErrors: string[] = []
-        if (task.dispatch.workspace?.mode !== "shared_compat" && task.merge?.cleanup !== "completed") {
-          cleanupErrors = await this.cleanupTaskWorkspace(ctx, task.id)
-        }
-        if (cleanupErrors.length === 0) await this.settleTaskActivation(task)
+        const cleanupErrors = await this.cleanupCompletedStepWorkspaces(ctx, step.id)
         const latest = this.store.read(this.path(ctx))
         const latestTask = latest?.steps.flatMap((item) => item.tasks).find((item) => item.id === task.id)
         const cleanupRecord = latestTask?.merge?.cleanup_record
@@ -3234,7 +3255,9 @@ export class PlanProtocol {
           next_action_hint:
             cleanupErrors.length > 0
               ? "merge is already applied; cleanup failed and is retryable after inspecting the recorded workspace"
-              : "merge already completed; continue with the current Step",
+              : latestTask?.merge?.cleanup === "pending"
+                ? "merge already completed; workspace retained for collaboration until every task in this Step completes"
+                : "merge already completed; continue with the current Step",
         }
       }
       await this.renewTaskActivation(task)
@@ -3435,26 +3458,7 @@ export class PlanProtocol {
         }
       })
 
-      if (finalStatus === "merged" && workspace.mode !== "shared_compat") {
-        const cleanupErrors = await this.cleanupTaskWorkspace(ctx, task.id)
-        await this.write(ctx, (latest) => {
-          if (!latest) throw new Error("plan disappeared while recording merge cleanup")
-          const next = clonePlan(latest)
-          const target = next.steps.flatMap((item) => item.tasks).find((item) => item.id === task.id)
-          if (target?.merge) {
-            target.merge.cleanup = cleanupErrors.length ? "failed" : "completed"
-            if (cleanupErrors.length) target.merge.cleanup_error = cleanupErrors.join("; ")
-          }
-          next.revision++
-          next.updated_at = nowIso(this.now)
-          return {
-            mutate(targetPlan) {
-              Object.assign(targetPlan, next)
-            },
-            result: { updated: true },
-          }
-        })
-      } else if (finalStatus === "merged") {
+      if (finalStatus === "merged" && workspace.mode === "shared_compat") {
         await this.write(ctx, (latest) => {
           if (!latest) throw new Error("plan disappeared while recording shared merge")
           const next = clonePlan(latest)
@@ -3470,7 +3474,7 @@ export class PlanProtocol {
           }
         })
       }
-      if (finalStatus === "merged") await this.settleTaskActivation(task)
+      if (finalStatus === "merged") await this.cleanupCompletedStepWorkspaces(ctx, step.id)
       if (finalStatus === "conflict") {
         const conflictKey = boundedConflicts
           .map((conflict) => `${conflict.path}:${conflict.kind}:${conflict.fingerprint}`)
@@ -3528,7 +3532,9 @@ export class PlanProtocol {
             ? "inspect the conflict paths, edit main_path when needed, then retry Merge.apply with resolutions[{path,use:'main'|'child'}]"
             : status === "failed"
               ? "inspect the recorded merge journal and retry Merge.apply after fixing the reported failure"
-              : "merge completed; continue with the current Step",
+              : mergedTask?.merge?.cleanup === "pending"
+                ? "merge completed; workspace retained for collaboration until every task in this Step completes"
+                : "merge completed; continue with the current Step",
       }
     } catch (error) {
       if (mergeStarted)
