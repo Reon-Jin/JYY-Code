@@ -1,27 +1,27 @@
 import { defaultProfiles, enabledProfiles, type SubagentProfile } from "@/agent/subagent-profile"
 
 export const PLAN_BASE_PROMPT = `## Root multi-agent protocol
-- Runtime gates and returned state are authoritative. Keep plan state only in the visible plan tools, never in prose.
-- When a state read is required, read it before deciding. Do not invent task IDs, revisions, roles, artifacts, or transitions.
-- For a medium/large request, first check the five split dimensions: deliverables, modules/files, research questions, verification surfaces, role expertise.
-- Define independent deliverables with observable done criteria and output_path values. Aim for 4-8 ready standard Tasks per wave (hard max 20); if fewer are justified, record the dependency or indivisibility reason in the plan or task instructions.
-- A Step is the maximal frontier of independent ready tasks, not one role or one file. Keep independent research, documents, implementation and verification in parallel within that Step; only true artifact dependencies create later Steps. Never split independent work into one-Task Steps merely to satisfy isolation.
-- Declare all required files in each Task's inputs (use [] when none). from_task may name only an earlier Step's Task; that Step must finish review and merge before dispatch. Same-Step dependencies are invalid, even when the producer has already finished. All batches and retries in a Step use its original frozen baseline.`
+- Runtime gates and returned state are authoritative. Keep plan state in visible tools. Read required state before deciding; never invent IDs, revisions, roles, artifacts or transitions.
+- For medium/large requests, split by deliverables, modules/files, research questions, verification surfaces and role expertise.
+- Define independent deliverables with observable done criteria and output_path. Aim for 4-8 ready standard Tasks per wave (max 20); explain fewer by dependency or indivisibility.
+- A Step contains all independent ready work across roles: research, documents, implementation and verification. Only artifact dependencies require later Steps. Never split independent work into one-Task Steps for isolation.
+- Declare required files in Task inputs ([] if none). from_task must name an earlier Step's Task, reviewed and merged before dispatch. Same-Step dependencies are invalid. All batches and retries in a Step use its original frozen baseline.`
 
 export const PLAN_CREATE_PROMPT = `## Plan creation rules
-- When the runtime forces Plan_create, no plan exists yet: create it directly instead of repeating Plan_read.
+- When forced, call Plan_create directly; no plan exists yet. Do not repeat Plan_read.
 - Create the plan exactly once; never emit multiple Plan_create calls in one assistant response.
-- Put task details in steps[0] for the first wave; keep later steps as skeletons expanded with Plan_update(add_task) when active (tasks in any Step at creation are fine).
-- goal and done_criteria are required; title is optional and derived from goal if omitted. Extra fields are ignored with a warning. Use workspace-relative output_path values; timeout_ms is runtime-owned and ignored.
-- After Plan_create returns, stop protocol writes in that response; read its result or error hint on the next turn and never retry Plan_create in the same turn.
-- Plan_create is retried at most twice per user request; if it keeps failing, fix the reported validation errors or answer the user directly.`
+- Detail steps[0]; keep later steps as skeletons expanded via Plan_update(add_task) when active, or detail them at creation.
+- Require goal and done_criteria. title defaults to goal; extra fields warn and are ignored. output_path is workspace-relative; timeout_ms is runtime-owned.
+- After Plan_create, stop protocol writes in that response. Read its result/error next turn; never retry Plan_create in the same turn.
+- Retry Plan_create at most twice per request; fix validation errors or answer directly.`
 
-export const PLAN_MULTI_PROMPT = `- Dispatch every ready task in a wave together with one appropriate enabled role. Batch same-role task IDs in one Dispatch_dispatch; dispatch other ready roles in separate batches within the same Step without waiting for earlier batches to finish. Only genuine artifact dependencies require later Steps. Do not perform a delegated task yourself.
-- In a child task's instructions, use only paths relative to that child's future workspace_root (e.g. src/file.ts). Never use absolute, parent-workspace, drive/UNC, ~-expanded, env-expanded, or file:// paths; runtime supplies workspace_root and output_path.
+export const PLAN_MULTI_PROMPT = `- Dispatch every ready task with an enabled role. Batch same-role IDs in one Dispatch_dispatch; dispatch other roles in the same Step without waiting. Do not perform delegated work yourself.
+- Use only paths relative to that child's future workspace_root in its instructions. Never use absolute, parent-workspace, drive/UNC, ~, env-expanded or file:// paths; runtime supplies workspace_root and output_path.
 - After dispatch, wait only if no report/event is actionable; never poll children.
-- Review each standard Report immediately against task criteria; never wait for siblings or the whole Step. Record review_task per task; reject with concrete feedback. Merge only approved work.
-- If rejection feedback remains undispatched, call Dispatch_dispatch directly to continue the existing child session. Do not call reopen_task for this revision path. Keep follow-ups concise; new work needs a new Task.
-- Use Blackboard only for decisions, dependencies, risks, handoffs, blockers, or targeted help. Consume unread Blackboard work before advancing a step.`
+- Review each standard Report against task criteria immediately; never wait for siblings. Record review_task; reject with concrete feedback. Merge only approved work.
+- Reuse child verification evidence. Add checks only for missing or conflicting evidence; do not repeat a full review.
+- For undispatched rejection feedback, call Dispatch_dispatch directly to continue the existing child session. Do not call reopen_task for this revision path. New work needs a new Task.
+- Use Blackboard only for decisions, dependencies, risks, handoffs, blockers or targeted help; consume unread work before advancing.`
 
 export const PLAN_SINGLE_PROMPT = ""
 
@@ -33,9 +33,8 @@ export const PLAN_CHILD_PROMPT = `## Child-agent protocol
 - Do not edit the parent plan, dispatch agents, or treat peer memory as your task. When previous feedback arrives, correct the artifact and report the result.`
 
 export const PLAN_CANDIDATE_PROMPT = `## Candidate protocol
-- Use candidate tasks only to compare genuinely competing approaches, never as ordinary parallel work.
-- Use exactly 2-3 alternatives in one complete group. Follow the visible phase tools exactly: declare, dispatch together, cross-review and become ready, wait for root release, then submit an independent proposal.
-- After every proposal arrives, create a real synthesis artifact in the root workspace before selecting one candidate. Candidate tasks are not merged as ordinary child work.`
+- Candidates compare competing approaches only: 2-3 alternatives in one group. Follow visible phase tools: declare, dispatch together, cross-review, become ready, wait for root release, submit independent proposals.
+- After all proposals arrive, create a synthesis artifact in the root workspace before selection. Do not merge candidates as ordinary child work.`
 
 function dispatchRosterPrompt(profiles: readonly SubagentProfile[] | undefined) {
   const roster = enabledProfiles(profiles === undefined ? defaultProfiles() : profiles)

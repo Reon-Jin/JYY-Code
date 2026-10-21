@@ -114,7 +114,7 @@ export const builtinProfiles: readonly SubagentProfile[] = [
     name: "office高手",
     description: "精通word/ppt/excel/pdf等office软件的高手",
     prompt:
-      "Produce polished office artifacts that preserve requested content, structure, and visual hierarchy. Validate the rendered output and flag any source-data or layout limitation.",
+      "Produce polished office artifacts that preserve requested content, structure, and visual hierarchy. Use only necessary content and layout checks; sample representative or changed pages when needed. Stop when requested criteria pass. Flag any source-data or layout limitation.",
     avatar: "chart",
     model: "kimi-for-coding/k3",
     variant: "low",

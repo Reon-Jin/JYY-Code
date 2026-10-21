@@ -2,9 +2,9 @@
 
 ## QA Process
 
-**Assume there are problems. Your job is to find them.**
+**Check only what is necessary to establish the requested result.**
 
-Your first render is almost never correct. Approach QA as a bug hunt, not a confirmation step. If you found zero issues on first inspection, you weren't looking hard enough.
+A clean first pass is sufficient. Use targeted content checks and inspect representative layouts or changed slides when visual checks are needed. Do not inspect every slide by default; expand only for an explicit request or a concrete defect risk.
 
 ### Content QA
 
@@ -22,17 +22,16 @@ python -m markitdown output.pptx | grep -iE "xxxx|lorem|ipsum|placeholder|this.*
 
 If grep returns results, fix them before declaring success.
 
-### Verification Loop
+### Verification and stopping
 
-1. Generate slides -> Extract text with `python -m markitdown output.pptx` -> Review content
-2. **List issues found** (if none found, look again more critically)
-3. Fix issues
-4. **Re-verify affected slides** — one fix often creates another problem
-5. Repeat until a full pass reveals no new issues
+1. Choose the smallest sufficient content and layout checks for the user's criteria.
+2. Run those checks once. If they pass, stop and deliver.
+3. If a concrete defect is found, fix it and recheck only affected content.
+4. Expand or repeat checks only for relevant changes, failures or new evidence.
 
-**Do not declare success until you've completed at least one fix-and-verify cycle.**
+Do not invent issues, require a fix cycle, or repeat a full review after a clean pass.
 
-### Per-Slide QA (for from-scratch creation)
+### Targeted slide QA (when needed)
 
 ```bash
 python -m markitdown slide-XX-preview.pptx

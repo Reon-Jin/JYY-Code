@@ -294,6 +294,8 @@ Footer: author name (left, 7.5pt, muted) + page number (right, 7.5pt, muted) + l
 
 ## Quality bar
 
+These are design goals, not a requirement for exhaustive page-by-page inspection. Use the minimum sufficient checks: representative layouts for new documents and affected pages for edits. Expand only for an explicit request or a concrete risk; stop once the requested criteria pass.
+
 A PDF passes if a designer would not be embarrassed to hand it to a client.
 Concretely:
 

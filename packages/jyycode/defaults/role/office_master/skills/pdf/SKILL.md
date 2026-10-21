@@ -22,6 +22,10 @@ metadata:
 
 Three tasks. One skill.
 
+## Verification scope
+
+Use only the checks needed for the user's request. Check structure, content or filled fields as relevant. When layout needs verification, inspect changed pages or representative layouts; do not inspect every page by default. Expand only for an explicit full-review request or a concrete defect risk. Stop when the requested criteria pass; recheck only affected content after a relevant change, failure or new evidence. Do not repeat a clean pass or add speculative polishing.
+
 ## Read `design/design.md` before any CREATE or REFORMAT work.
 
 ---

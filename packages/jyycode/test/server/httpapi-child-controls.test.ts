@@ -3,9 +3,9 @@ import { Deferred, Effect, Fiber, Layer } from "effect"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import * as Log from "@jyycode-ai/core/util/log"
 import { Session } from "../../src/session/session"
+import { SessionPrompt } from "../../src/session/prompt"
 import { SessionRunState } from "../../src/session/run-state"
 import { SessionStatus } from "../../src/session/status"
-import { MessageID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Server } from "../../src/server/server"
 import { InstanceStore } from "../../src/project/instance-store"
@@ -25,6 +25,7 @@ const config = {
 const it = testEffectShared(
   Layer.mergeAll(
     testInstanceStoreLayer,
+    SessionPrompt.defaultLayer,
     Session.defaultLayer,
     SessionRunState.defaultLayer,
     SessionStatus.defaultLayer,
@@ -53,22 +54,27 @@ describe("child control HttpApi", () => {
           const parent = yield* sessions.create({ title: "Parent" })
           const child = yield* sessions.create({ parentID: parent.id, title: "Child", directory })
           const model = { providerID: ProviderID.make("test"), modelID: ModelID.make("test") }
-          const info = yield* sessions.updateMessage({
-            id: MessageID.ascending(),
-            sessionID: child.id,
-            role: "user",
-            agent: "build",
-            model,
-            time: { created: Date.now() },
-          })
-          const ready = yield* Deferred.make<void>()
           const ownerDirectory = owner === "root" ? root.directory : child.directory
+          // A real running child has already initialized its prompt dependencies.
+          // Use that path here so the steering deadline measures persistence,
+          // rather than cold agent/skill/plugin initialization on the CI host.
+          const message = yield* store.provide(
+            { directory: ownerDirectory },
+            (yield* SessionPrompt.Service).prompt({
+              sessionID: child.id,
+              agent: "build",
+              model,
+              noReply: true,
+              parts: [],
+            }),
+          )
+          const ready = yield* Deferred.make<void>()
           const runner = yield* store
             .provide(
               { directory: ownerDirectory },
               runs.ensureRunning(
                 child.id,
-                Effect.succeed({ info, parts: [] }),
+                Effect.succeed(message),
                 statuses
                   .set(child.id, { type: "busy" })
                   .pipe(Effect.andThen(Deferred.succeed(ready, undefined)), Effect.andThen(Effect.never)),
