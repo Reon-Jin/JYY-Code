@@ -53,7 +53,7 @@ describe("global subagent timeout setting", () => {
         (spy) => Effect.sync(() => spy.mockRestore()),
       )
       const handler = yield* Effect.acquireRelease(
-        Effect.sync(() => HttpApiApp.webHandler()),
+        Effect.sync(() => HttpApiApp.createWebHandler()),
         (value) => Effect.promise(() => value.dispose()).pipe(Effect.ignore),
       )
       const context = Context.empty() as Context.Context<unknown>

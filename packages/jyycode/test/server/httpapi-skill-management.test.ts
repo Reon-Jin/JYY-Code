@@ -19,9 +19,9 @@ const testStateLayer = Layer.effectDiscard(
 )
 const it = testEffect(testStateLayer)
 
-type TestHandler = ReturnType<typeof HttpApiApp.webHandler>
+type TestHandler = ReturnType<typeof HttpApiApp.createWebHandler>
 const handlerScoped = Effect.acquireRelease(
-  Effect.sync(() => HttpApiApp.webHandler()),
+  Effect.sync(() => HttpApiApp.createWebHandler()),
   (handler) => Effect.promise(() => handler.dispose()).pipe(Effect.ignore),
 )
 

@@ -257,12 +257,15 @@ export function createRoutes(
 
 export const routes = createRoutes()
 
-export const webHandler = lazy(() =>
+// Callers own this handler's lifetime and may dispose it independently.
+export const createWebHandler = () =>
   HttpRouter.toWebHandler(routes, {
     disableLogger: true,
     memoMap,
     middleware: disposeMiddleware,
-  }),
-)
+  })
+
+// The default server and callers without an owned scope share this handler.
+export const webHandler = lazy(createWebHandler)
 
 export * as HttpApiApp from "./server"

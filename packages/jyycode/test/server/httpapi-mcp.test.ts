@@ -26,10 +26,10 @@ function app() {
   return Server.Default().app
 }
 type TestApp = ReturnType<typeof app>
-type TestHandler = ReturnType<typeof HttpApiApp.webHandler>
+type TestHandler = ReturnType<typeof HttpApiApp.createWebHandler>
 
 const handlerScoped = Effect.acquireRelease(
-  Effect.sync(() => HttpApiApp.webHandler()),
+  Effect.sync(() => HttpApiApp.createWebHandler()),
   (handler) => Effect.promise(() => handler.dispose()).pipe(Effect.ignore),
 )
 

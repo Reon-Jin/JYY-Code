@@ -8,6 +8,7 @@ import { SessionRunState } from "../../src/session/run-state"
 import { SessionStatus } from "../../src/session/status"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Server } from "../../src/server/server"
+import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
 import { InstanceStore } from "../../src/project/instance-store"
 import { resetDatabase } from "../fixture/db"
 import { TestInstance, testInstanceStoreLayer, tmpdirScoped } from "../fixture/fixture"
@@ -91,6 +92,19 @@ describe("child control HttpApi", () => {
           )
           expect(yield* runs.directory(child.id)).toBe(ownerDirectory)
           expect(child.directory).not.toBe(root.directory)
+
+          if (action === "interrupt-prompt") {
+            // Disposing a test-owned handler must leave the default server's
+            // background scope alive, regardless of cross-file test order.
+            yield* Effect.acquireUseRelease(
+              Effect.sync(() => HttpApiApp.createWebHandler()),
+              (handler) =>
+                Effect.promise(() =>
+                  handler.handler(new Request("http://localhost/global/health"), HttpApiApp.context),
+                ).pipe(Effect.tap((response) => Effect.sync(() => expect(response.status).toBe(200)))),
+              (handler) => Effect.promise(() => handler.dispose()),
+            )
+          }
 
           const response = yield* Effect.promise(async () =>
             Server.Default().app.request(`/session/${child.id}/${action}`, {

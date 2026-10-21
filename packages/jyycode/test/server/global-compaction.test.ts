@@ -21,7 +21,7 @@ const it = testEffect(
 )
 const context = Context.empty() as Context.Context<unknown>
 const handlerScoped = Effect.acquireRelease(
-  Effect.sync(() => HttpApiApp.webHandler()),
+  Effect.sync(() => HttpApiApp.createWebHandler()),
   (handler) => Effect.promise(() => handler.dispose()).pipe(Effect.ignore),
 )
 
