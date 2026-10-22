@@ -40,6 +40,14 @@ function billedFromMessages(messages: readonly ConversationMessage[]) {
   }
 
   for (const message of messages) {
+    // Memory calls are billed steps attached to their originating user turn.
+    // They contribute to billing, never to the assistant's context snapshot.
+    for (const part of message.parts) {
+      if (part.type !== "step-finish" || (part.reason !== "memory-curation" && part.reason !== "memory-digest"))
+        continue
+      add(part.tokens)
+      cost += part.cost
+    }
     if (message.info.role !== "assistant") continue
     // The billing ledger is cumulative for this assistant message. Its plain
     // `tokens` field is only the latest context snapshot and must not be summed.
@@ -51,6 +59,7 @@ function billedFromMessages(messages: readonly ConversationMessage[]) {
     // Older messages predate the billing ledger, but persist billed step parts.
     for (const part of message.parts) {
       if (part.type !== "step-finish") continue
+      if (part.reason === "memory-curation" || part.reason === "memory-digest") continue
       add(part.tokens)
       cost += part.cost
     }

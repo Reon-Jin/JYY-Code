@@ -20,16 +20,32 @@ describe("session snapshots", () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "memory-workspace-isolation-"))
     cleanup.push(directory)
     const ids = [sessionID, SessionID.make("ses_peer"), SessionID.make("ses_unrelated")]
-    const entries = ids.map((id, index): Memory.TaskMemoryEntry => ({
-      scope: "memory", sessionID: id, projectID: "global", importance: 7, date: "20261022",
-      keywords: ["任务"], content: `当前任务：任务${index}；进展：独立状态${index}`,
-    }))
+    const entries = ids.map(
+      (id, index): Memory.TaskMemoryEntry => ({
+        scope: "memory",
+        sessionID: id,
+        projectID: "global",
+        importance: 7,
+        date: "20261022",
+        keywords: ["任务"],
+        content: `当前任务：任务${index}；进展：独立状态${index}`,
+      }),
+    )
     await fs.writeFile(path.join(directory, "MEMORY.json"), Memory.serializeStore("memory", entries))
     const sessions = Layer.mock(Session.Service)({
-      get: (id) => Effect.succeed({ id, projectID: "global", directory: path.join(directory, id === ids[2] ? "other" : "same") } as Session.Info),
+      get: (id) =>
+        Effect.succeed({
+          id,
+          projectID: "global",
+          directory: path.join(directory, id === ids[2] ? "other" : "same"),
+        } as Session.Info),
     })
-    const layer = Memory.layerWithDirectory(directory).pipe(Layer.provide(Layer.merge(AppFileSystem.defaultLayer, sessions)))
-    const snapshot = await Effect.runPromise(Memory.Service.use((memory) => memory.formatWithHeader(sessionID, "memory")).pipe(Effect.provide(layer)))
+    const layer = Memory.layerWithDirectory(directory).pipe(
+      Layer.provide(Layer.merge(AppFileSystem.defaultLayer, sessions)),
+    )
+    const snapshot = await Effect.runPromise(
+      Memory.Service.use((memory) => memory.formatWithHeader(sessionID, "memory")).pipe(Effect.provide(layer)),
+    )
     expect(snapshot).toContain("任务0")
     expect(snapshot).toContain("任务1")
     expect(snapshot).not.toContain("任务2")

@@ -31,7 +31,10 @@ export function formatEpisodesForDigest(episodes: EpisodeTurn[], maxChars = 14_0
     selected.unshift(text)
     remaining -= text.length + 10
   }
-  if (selected.length < episodes.length) selected.unshift(`[${episodes.length - selected.length} older turns omitted to fit input budget; use context_read for full details.]`)
+  if (selected.length < episodes.length)
+    selected.unshift(
+      `[${episodes.length - selected.length} older turns omitted to fit input budget; use context_read for full details.]`,
+    )
   return selected.join("\n\n---\n\n").slice(0, maxChars)
 }
 
@@ -55,7 +58,8 @@ export function buildDigestPrompt(input: { previousDigest?: string; backfillText
     "- Do not mention the compaction process. Respond in the same language as the conversation.",
     `- Output at most ${DIGEST_MAX_OUTPUT_CHARS} characters.`,
   ]
-  if (input.previousDigest) lines.push("", "<previous-digest>", truncate(input.previousDigest, 3_000), "</previous-digest>")
+  if (input.previousDigest)
+    lines.push("", "<previous-digest>", truncate(input.previousDigest, 3_000), "</previous-digest>")
   if (input.backfillText) lines.push("", "<older-history>", truncate(input.backfillText, 5_000), "</older-history>")
   if (input.episodes.length) {
     lines.push("", "<new-episodes>", formatEpisodesForDigest(input.episodes), "</new-episodes>")

@@ -52,6 +52,7 @@ function fixture(input?: { parentID?: SessionID; multiAgent?: boolean; projectID
     [userPath, Memory.serializeStore("user", [])],
   ])
   let currentMessages: MessageV2.WithParts[] = []
+  const reads: string[] = []
   const fsLayer = Layer.effect(
     AppFileSystem.Service,
     Effect.gen(function* () {
@@ -60,7 +61,10 @@ function fixture(input?: { parentID?: SessionID; multiAgent?: boolean; projectID
         ...fs,
         ensureDir: () => Effect.void,
         existsSafe: (target) => Effect.succeed(files.has(target)),
-        readFileStringSafe: (target) => Effect.succeed(files.get(target)),
+        readFileStringSafe: (target) => Effect.sync(() => {
+          reads.push(target)
+          return files.get(target)
+        }),
         writeFileString: (target, content) => Effect.sync(() => void files.set(target, content)),
         rename: (from, to) =>
           Effect.sync(() => {
@@ -94,6 +98,7 @@ function fixture(input?: { parentID?: SessionID; multiAgent?: boolean; projectID
     files,
     memoryPath,
     userPath,
+    reads,
     setMessages(value: MessageV2.WithParts[]) {
       currentMessages = value
     },
@@ -102,29 +107,69 @@ function fixture(input?: { parentID?: SessionID; multiAgent?: boolean; projectID
 }
 
 describe("two-phase semantic memory curator", () => {
+  test("builds one context snapshot with one read of each initialized store", async () => {
+    const ctx = fixture()
+    await ctx.run(Effect.gen(function* () {
+      const memory = yield* Memory.Service
+      yield* memory.ensure(sessionID)
+      ctx.reads.length = 0
+      const snapshot = yield* memory.contextSnapshot!(sessionID)
+      expect(snapshot.text).toContain("TASK MEMORY")
+      expect(ctx.reads.filter((target) => target === ctx.memoryPath)).toHaveLength(1)
+      expect(ctx.reads.filter((target) => target === ctx.userPath)).toHaveLength(1)
+    }))
+  })
+
+  test("rejects an obsolete assistant revision even if the user turn has not changed", async () => {
+    const ctx = fixture()
+    const history = messages("原请求", "原回复", "revision")
+    ctx.setMessages(history)
+    const result = await ctx.run(Memory.Service.use((memory) => memory.updateAfterTurn(sessionID, () => {
+      const continued = messages("原请求", "续写回复", "continued")[1]!
+      ctx.setMessages([...history, continued])
+      return Effect.succeed(decision("当前任务：原任务；进展：旧的回复状态"))
+    }, {
+      userText: "原请求", assistantText: "原回复", history,
+      userMessageID: history[0]!.info.id, assistantMessageID: history[1]!.info.id,
+    })))
+    expect(result).toEqual({ status: "skipped", reason: "stale" })
+    expect(Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries).toHaveLength(0)
+  })
   test("discards a slow earlier turn after a newer turn has updated memory", async () => {
     const ctx = fixture()
     const oldHistory = messages("旧请求", "旧回复", "old")
     ctx.setMessages(oldHistory)
-    await ctx.run(Effect.gen(function* () {
-      const started = yield* Deferred.make<void>()
-      const release = yield* Deferred.make<void>()
-      const memory = yield* Memory.Service
-      const old = yield* memory.updateAfterTurn(sessionID, () => Effect.gen(function* () {
-        yield* Deferred.succeed(started, undefined)
-        yield* Deferred.await(release)
-        return decision("当前任务：旧任务；进展：过期结果")
-      }), { userText: "旧请求", assistantText: "旧回复", history: oldHistory, userMessageID: oldHistory[0]!.info.id }).pipe(Effect.forkChild)
-      yield* Deferred.await(started)
-      const newHistory = messages("新请求", "新回复", "new")
-      ctx.setMessages([...oldHistory, ...newHistory])
-      yield* memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("当前任务：新任务；进展：最新状态")), {
-        userText: "新请求", assistantText: "新回复", history: newHistory, userMessageID: newHistory[0]!.info.id,
-      })
-      yield* Deferred.succeed(release, undefined)
-      expect(yield* Fiber.join(old)).toEqual({ status: "skipped", reason: "stale" })
-      expect(yield* memory.currentTaskContent(sessionID)).toBe("当前任务：新任务；进展：最新状态")
-    }))
+    await ctx.run(
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>()
+        const release = yield* Deferred.make<void>()
+        const memory = yield* Memory.Service
+        const old = yield* memory
+          .updateAfterTurn(
+            sessionID,
+            () =>
+              Effect.gen(function* () {
+                yield* Deferred.succeed(started, undefined)
+                yield* Deferred.await(release)
+                return decision("当前任务：旧任务；进展：过期结果")
+              }),
+            { userText: "旧请求", assistantText: "旧回复", history: oldHistory, userMessageID: oldHistory[0]!.info.id },
+          )
+          .pipe(Effect.forkChild)
+        yield* Deferred.await(started)
+        const newHistory = messages("新请求", "新回复", "new")
+        ctx.setMessages([...oldHistory, ...newHistory])
+        yield* memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("当前任务：新任务；进展：最新状态")), {
+          userText: "新请求",
+          assistantText: "新回复",
+          history: newHistory,
+          userMessageID: newHistory[0]!.info.id,
+        })
+        yield* Deferred.succeed(release, undefined)
+        expect(yield* Fiber.join(old)).toEqual({ status: "skipped", reason: "stale" })
+        expect(yield* memory.currentTaskContent(sessionID)).toBe("当前任务：新任务；进展：最新状态")
+      }),
+    )
   })
   test("uses the LLM to store a semantic user summary immediately after a prompt", async () => {
     const ctx = fixture()

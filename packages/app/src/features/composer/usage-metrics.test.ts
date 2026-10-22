@@ -36,6 +36,35 @@ function assistant(id: string, tokens: AssistantMessage["tokens"]): { info: Assi
 }
 
 describe("usage metrics", () => {
+  it("counts memory calls on user messages without inflating the current context", () => {
+    const response = assistant("msg_answer", { input: 100, output: 20, reasoning: 0, cache: { read: 0, write: 0 } })
+    response.info.usage = { version: 1, context: response.info.tokens, billing: response.info.tokens, cost: 0.1 }
+    const request = {
+      info: {
+        id: "msg_user",
+        sessionID: "ses_root",
+        role: "user" as const,
+        time: { created: 1 },
+        agent: "build",
+        model: { providerID: "test", modelID: "test" },
+      },
+      parts: [
+        {
+          id: "prt_aux",
+          messageID: "msg_user",
+          sessionID: "ses_root",
+          type: "step-finish" as const,
+          reason: "memory-curation",
+          cost: 0.02,
+          tokens: { input: 50, output: 5, reasoning: 0, cache: { read: 10, write: 0 } },
+        },
+      ],
+    }
+    const metrics = composerUsageMetrics({ session: session(), messages: [request, response], contextWindow: 1_000 })
+    expect(metrics.contextUsed).toBe(120)
+    expect(metrics.aggregate?.tokens.total).toBe(185)
+    expect(metrics.aggregate?.cost).toBeCloseTo(0.12)
+  })
   it("uses server-owned totals for all agents without adding the root's message usage again", () => {
     const root = session({
       multiAgent: true,

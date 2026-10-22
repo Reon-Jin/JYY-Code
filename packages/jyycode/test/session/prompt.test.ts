@@ -31,7 +31,12 @@ import { SessionCompaction } from "../../src/session/compaction"
 import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
-import { failedPlanCreatePart, normalizeGeneratedTitle, SessionPrompt } from "../../src/session/prompt"
+import {
+  failedPlanCreatePart,
+  normalizeGeneratedTitle,
+  shouldCurateMemory,
+  SessionPrompt,
+} from "../../src/session/prompt"
 import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
 import { registerComputerSession } from "@/tool/computer/resources"
@@ -169,7 +174,7 @@ const lsp = Layer.succeed(
 )
 
 const memoryLifecycleUpdates: Array<{ sessionID: SessionID; phase: "received" | "before_final" }> = []
-let memoryStepBeginGate: Deferred.Deferred<void> | undefined
+let memoryCuratorGate: Deferred.Deferred<void> | undefined
 const memoryLifecycleLayer = Layer.succeed(
   Memory.Service,
   Memory.Service.of({
@@ -190,12 +195,13 @@ const memoryLifecycleLayer = Layer.succeed(
     updateStepBegin: (sessionID) =>
       Effect.gen(function* () {
         memoryLifecycleUpdates.push({ sessionID, phase: "received" })
-        if (memoryStepBeginGate) yield* Deferred.await(memoryStepBeginGate)
+        if (memoryCuratorGate) yield* Deferred.await(memoryCuratorGate)
         return { status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }
       }),
     updateAfterTurn: (sessionID) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         memoryLifecycleUpdates.push({ sessionID, phase: "before_final" })
+        if (memoryCuratorGate) yield* Deferred.await(memoryCuratorGate)
         return { status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }
       }),
   }),
@@ -640,8 +646,6 @@ it.instance("keeps the verbatim window contiguous with the episodic digest", () 
     )
     expect(digestText.length).toBeLessThanOrEqual(3000)
 
-    const beforeTurn6 = (yield* llm.inputs).at(-2)!
-    const beforeTurn6Raw = JSON.stringify(beforeTurn6)
     yield* llm.text("answer 6")
     yield* prompt.prompt({
       sessionID: chat.id,
@@ -652,7 +656,8 @@ it.instance("keeps the verbatim window contiguous with the episodic digest", () 
     const inputs = yield* llm.inputs
     const last = inputs.at(-1)!
     const raw = JSON.stringify(last)
-    expect(raw.length).toBeLessThan(beforeTurn6Raw.length)
+    expect(raw).not.toContain("## Latest assistant output")
+    expect(raw).toContain("episodic-digest")
     expect(raw).toContain("episodic digest summary")
     expect(raw).toContain("request 2")
     expect(raw).toContain("request 3")
@@ -1940,16 +1945,15 @@ withSnapshotMemory.instance("injects the persistent memory snapshot on the first
   }),
 )
 
-withMemoryLifecycle.instance("updates memory while busy and before returning the final answer", () =>
+withMemoryLifecycle.instance("curates once after a turn without blocking the assistant response", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
     const prompt = yield* SessionPrompt.Service
     const sessions = yield* Session.Service
-    const status = yield* SessionStatus.Service
     const chat = yield* sessions.create({ title: "Memory lifecycle" })
     memoryLifecycleUpdates.splice(0)
     const gate = yield* Deferred.make<void>()
-    memoryStepBeginGate = gate
+    memoryCuratorGate = gate
     yield* llm.text("done")
 
     const fiber = yield* prompt
@@ -1961,34 +1965,23 @@ withMemoryLifecycle.instance("updates memory while busy and before returning the
       .pipe(Effect.forkChild)
     yield* pollWithTimeout(
       Effect.sync(() =>
-        memoryLifecycleUpdates.some((entry) => entry.sessionID === chat.id && entry.phase === "received")
+        memoryLifecycleUpdates.some((entry) => entry.sessionID === chat.id && entry.phase === "before_final")
           ? true
           : undefined,
       ),
-      "memory input-phase update did not start",
+      "memory after-turn update did not start",
     )
-    expect((yield* status.get(chat.id)).type).toBe("busy")
-    yield* Deferred.succeed(gate, void 0)
     const exit = yield* Fiber.await(fiber)
     expect(Exit.isSuccess(exit)).toBe(true)
     if (!Exit.isSuccess(exit)) return
     const result = exit.value
 
     expect(result.info.role).toBe("assistant")
-    // The after-turn curator now runs in the background so the assistant
-    // response is never blocked on the second LLM round trip; poll until it
-    // lands.
-    yield* pollWithTimeout(
-      Effect.sync(() =>
-        memoryLifecycleUpdates.filter((entry) => entry.sessionID === chat.id).length >= 2 ? true : undefined,
-      ),
-      "memory after-turn update did not complete",
-    )
     expect(memoryLifecycleUpdates.filter((entry) => entry.sessionID === chat.id).map((entry) => entry.phase)).toEqual([
-      "received",
       "before_final",
     ])
-  }).pipe(Effect.ensuring(Effect.sync(() => void (memoryStepBeginGate = undefined)))),
+    yield* Deferred.succeed(gate, void 0)
+  }).pipe(Effect.ensuring(Effect.sync(() => void (memoryCuratorGate = undefined)))),
 )
 
 withMemoryFailure.instance("memory curator failures do not abort the assistant run", () =>
@@ -4145,6 +4138,7 @@ it.instance("profile subagent child session gets role skills in the skill tool a
 )
 
 const experienceCandidatesWritten: Array<{ sessionID: SessionID; candidates: Memory.ExperienceCandidate[] }> = []
+const experienceMaintenanceCalls: Array<[SessionID, string | undefined]> = []
 const experienceSnapshotCalls: Array<[SessionID, string[], string | undefined]> = []
 const experienceMemoryLayer = Layer.succeed(
   ExperienceMemory.Service,
@@ -4163,7 +4157,10 @@ const experienceMemoryLayer = Layer.succeed(
         experienceSnapshotCalls.push([sessionID, [...taskKeywords], taskGoal])
         return ""
       }),
-    maintain: () => Effect.die("unexpected maintain"),
+    maintain: (sessionID, directory) => Effect.sync(() => {
+      experienceMaintenanceCalls.push([sessionID, directory])
+      return { removed: 0, merged: 0, retained: 1 }
+    }),
     managementRead: () => Effect.die("unexpected managementRead"),
     managementUpdate: () => Effect.die("unexpected managementUpdate"),
     managementRemove: () => Effect.die("unexpected managementRemove"),
@@ -4213,6 +4210,23 @@ const withExperienceWiring = testEffect(
   makeHttp({ memory: experienceWiringMemoryLayer, experience: experienceMemoryLayer }),
 )
 
+withExperienceWiring.instance("maintains the current workspace experience store at the turn interval", () =>
+  Effect.gen(function* () {
+    const { llm, dir } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Experience maintenance" })
+    experienceMaintenanceCalls.length = 0
+    for (let turn = 1; turn < ExperienceMemory.EXPERIENCE_MAINTENANCE_INTERVAL_TURNS; turn++) {
+      yield* prompt.prompt({ sessionID: chat.id, agent: "build", noReply: true, parts: [{ type: "text", text: `request ${turn}` }] })
+    }
+    yield* llm.text("done")
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "finish task" }] })
+    yield* pollWithTimeout(Effect.sync(() => experienceMaintenanceCalls.length ? true : undefined), "experience maintenance did not run")
+    expect(experienceMaintenanceCalls).toEqual([[chat.id, dir]])
+  }),
+)
+
 withExperienceWiring.instance("writes experience candidates after the assistant turn", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
@@ -4227,13 +4241,12 @@ withExperienceWiring.instance("writes experience candidates after the assistant 
       parts: [{ type: "text", text: "fix deploy" }],
     })
     // The after-turn curator runs in the background so the assistant response
-    // is never blocked on the second LLM round trip; poll until it lands. The
-    // step-begin write (user phase) is joined first, so ordering is preserved.
+    // is never blocked on the auxiliary LLM call; poll until it lands.
     yield* pollWithTimeout(
-      Effect.sync(() => (experienceCandidatesWritten.length >= 2 ? true : undefined)),
+      Effect.sync(() => (experienceCandidatesWritten.length >= 1 ? true : undefined)),
       "experience candidates after-turn write did not complete",
     )
-    expect(experienceCandidatesWritten.map((entry) => entry.candidates)).toEqual([[], [experienceCandidate]])
+    expect(experienceCandidatesWritten.map((entry) => entry.candidates)).toEqual([[experienceCandidate]])
   }),
 )
 
@@ -4263,4 +4276,12 @@ test("formats the existing user profile hint for curator dedup", () => {
   expect(hint).toContain("Existing user profile")
   expect(hint).toContain("keywords=[中文]")
   expect(hint).toContain("reuse the exact keywords to update a fact")
+})
+
+test("skips empty greetings but preserves real requests and tool activity for memory curation", () => {
+  expect(shouldCurateMemory("你好！")).toBe(false)
+  expect(shouldCurateMemory("thanks")).toBe(false)
+  expect(shouldCurateMemory("以后请始终用中文回答")).toBe(true)
+  expect(shouldCurateMemory("你好，帮我修复登录")).toBe(true)
+  expect(shouldCurateMemory("好的", true)).toBe(true)
 })

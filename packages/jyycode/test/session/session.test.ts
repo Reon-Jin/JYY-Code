@@ -18,6 +18,9 @@ import { Database } from "@/storage/db"
 import { SessionTable } from "@/session/session.sql"
 import { backfillSessionUsageFromStepFinishParts } from "@/data-migration"
 import { eq } from "drizzle-orm"
+import { auxiliaryUsagePart } from "@/session/auxiliary-usage"
+import type { Provider } from "@/provider/provider"
+import type { LanguageModelUsage } from "ai"
 
 void Log.init({ print: false })
 
@@ -177,6 +180,46 @@ describe("step-finish token propagation via Bus event", () => {
 })
 
 describe("session usage projection", () => {
+  it.instance(
+    "includes auxiliary memory calls in durable totals and the agent tree without altering context messages",
+    () =>
+      Effect.gen(function* () {
+        const sessions = yield* SessionNs.Service
+        const root = yield* sessions.create({})
+        const child = yield* sessions.create({ parentID: root.id })
+        const messageID = MessageID.ascending()
+        yield* sessions.updateMessage({
+          id: messageID,
+          sessionID: child.id,
+          role: "user",
+          time: { created: Date.now() },
+          agent: "user",
+          model: { providerID: "test", modelID: "test" },
+        } as unknown as MessageV2.Info)
+        const part = auxiliaryUsagePart({
+          sessionID: child.id,
+          messageID,
+          reason: "memory-curation",
+          model: { cost: { input: 1, output: 2, cache: { read: 0.1, write: 1.2 } } } as Provider.Model,
+          usage: {
+            inputTokens: 100,
+            outputTokens: 40,
+            totalTokens: 140,
+            inputTokenDetails: { cacheReadTokens: 20, cacheWriteTokens: 10 },
+            outputTokenDetails: { reasoningTokens: 10 },
+          } as LanguageModelUsage,
+        })
+        yield* sessions.updatePart(part)
+        yield* sessions.updatePart(part)
+        const usage = yield* sessions.usage(root.id)
+        expect(usage.tokens).toEqual({ input: 70, output: 30, reasoning: 10, cache: { read: 20, write: 10 } })
+        expect(usage.cost).toBeCloseTo(0.000164)
+        expect(usage.sessionCount).toBe(2)
+        expect(
+          (yield* sessions.messages({ sessionID: child.id })).filter((message) => message.info.role === "assistant"),
+        ).toHaveLength(0)
+      }),
+  )
   it.instance("keeps the older message.part.updated event path compatible", () =>
     Effect.gen(function* () {
       const sessions = yield* SessionNs.Service
@@ -193,26 +236,40 @@ describe("session usage projection", () => {
         mode: "",
       } as unknown as MessageV2.Info)
       const part = {
-        id: PartID.ascending(), messageID, sessionID: session.id,
-        type: "step-finish" as const, reason: "stop", cost: 0.2,
+        id: PartID.ascending(),
+        messageID,
+        sessionID: session.id,
+        type: "step-finish" as const,
+        reason: "stop",
+        cost: 0.2,
         tokens: { total: 42, input: 15, output: 12, reasoning: 5, cache: { read: 8, write: 2 } },
       }
       yield* SyncEvent.use.run(MessageV2.Event.PartUpdated, {
-        sessionID: session.id, part, time: Date.now(),
+        sessionID: session.id,
+        part,
+        time: Date.now(),
       })
       let current = yield* sessions.get(session.id)
       expect(current.cost).toBeCloseTo(0.2)
       expect(current.tokens).toEqual({
-        input: 15, output: 12, reasoning: 5, cache: { read: 8, write: 2 },
+        input: 15,
+        output: 12,
+        reasoning: 5,
+        cache: { read: 8, write: 2 },
       })
 
       yield* SyncEvent.use.run(MessageV2.Event.PartRemoved, {
-        sessionID: session.id, messageID, partID: part.id,
+        sessionID: session.id,
+        messageID,
+        partID: part.id,
       })
       current = yield* sessions.get(session.id)
       expect(current.cost).toBeCloseTo(0)
       expect(current.tokens).toEqual({
-        input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 },
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
       })
     }),
   )
@@ -246,7 +303,10 @@ describe("session usage projection", () => {
       let current = yield* sessions.get(session.id)
       expect(current.cost).toBeCloseTo(0.125)
       expect(current.tokens).toEqual({
-        input: 30, output: 20, reasoning: 10, cache: { read: 15, write: 5 },
+        input: 30,
+        output: 20,
+        reasoning: 10,
+        cache: { read: 15, write: 5 },
       })
 
       const revised = {
@@ -258,7 +318,10 @@ describe("session usage projection", () => {
       current = yield* sessions.get(session.id)
       expect(current.cost).toBeCloseTo(0.25)
       expect(current.tokens).toEqual({
-        input: 40, output: 30, reasoning: 20, cache: { read: 20, write: 10 },
+        input: 40,
+        output: 30,
+        reasoning: 20,
+        cache: { read: 20, write: 10 },
       })
 
       const second = { ...part, id: PartID.ascending(), cost: 0.5 }
@@ -266,14 +329,20 @@ describe("session usage projection", () => {
       current = yield* sessions.get(session.id)
       expect(current.cost).toBeCloseTo(0.75)
       expect(current.tokens).toEqual({
-        input: 70, output: 50, reasoning: 30, cache: { read: 35, write: 15 },
+        input: 70,
+        output: 50,
+        reasoning: 30,
+        cache: { read: 35, write: 15 },
       })
 
       yield* sessions.removePart({ sessionID: session.id, messageID, partID: part.id })
       current = yield* sessions.get(session.id)
       expect(current.cost).toBeCloseTo(0.5)
       expect(current.tokens).toEqual({
-        input: 30, output: 20, reasoning: 10, cache: { read: 15, write: 5 },
+        input: 30,
+        output: 20,
+        reasoning: 10,
+        cache: { read: 15, write: 5 },
       })
 
       yield* sessions.removeMessage({ sessionID: session.id, messageID })
@@ -301,14 +370,26 @@ describe("session usage projection", () => {
       } as unknown as MessageV2.Info)
       const tokens = { total: 77, input: 31, output: 20, reasoning: 6, cache: { read: 15, write: 5 } }
       yield* sessions.updatePart({
-        id: PartID.ascending(), messageID, sessionID: session.id,
-        type: "step-finish", reason: "stop", cost: 0.375, tokens,
+        id: PartID.ascending(),
+        messageID,
+        sessionID: session.id,
+        type: "step-finish",
+        reason: "stop",
+        cost: 0.375,
+        tokens,
       })
 
       yield* Database.query((db) =>
-        db.update(SessionTable)
-          .set({ cost: 0, tokens_input: 0, tokens_output: 0, tokens_reasoning: 0,
-            tokens_cache_read: 0, tokens_cache_write: 0 })
+        db
+          .update(SessionTable)
+          .set({
+            cost: 0,
+            tokens_input: 0,
+            tokens_output: 0,
+            tokens_reasoning: 0,
+            tokens_cache_read: 0,
+            tokens_cache_write: 0,
+          })
           .where(eq(SessionTable.id, session.id))
           .run(),
       )
@@ -321,7 +402,10 @@ describe("session usage projection", () => {
       let current = yield* sessions.get(session.id)
       expect(current.cost).toBeCloseTo(0.375)
       expect(current.tokens).toEqual({
-        input: 31, output: 20, reasoning: 6, cache: { read: 15, write: 5 },
+        input: 31,
+        output: 20,
+        reasoning: 6,
+        cache: { read: 15, write: 5 },
       })
       expect((yield* sessions.get(other.id)).cost).toBe(1)
 
@@ -329,7 +413,10 @@ describe("session usage projection", () => {
       current = yield* sessions.get(session.id)
       expect(current.cost).toBeCloseTo(0.375)
       expect(current.tokens).toEqual({
-        input: 31, output: 20, reasoning: 6, cache: { read: 15, write: 5 },
+        input: 31,
+        output: 20,
+        reasoning: 6,
+        cache: { read: 15, write: 5 },
       })
     }),
   )

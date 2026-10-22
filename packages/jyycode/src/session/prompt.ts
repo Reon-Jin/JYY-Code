@@ -9,7 +9,7 @@ import * as Session from "./session"
 import { Agent } from "../agent/agent"
 import { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "../provider/schema"
-import { type Tool as AITool, tool, jsonSchema, generateText, Output } from "ai"
+import { type Tool as AITool, tool, jsonSchema, generateText, Output, NoObjectGeneratedError } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { Bus } from "../bus"
@@ -182,8 +182,14 @@ export async function retryMemoryJsonOutput(
 
 export function shouldCurateMemory(text: string, hasActivity = false) {
   if (hasActivity) return true
-  const compact = text.trim().replace(/[\s！!。.,，?？~～]/gu, "").toLowerCase()
-  return compact.length > 0 && !/^(你好|您好|嗨|哈喽|谢谢|感谢|好的|好|收到|ok|okay|hi|hello|thanks|thankyou)$/u.test(compact)
+  const compact = text
+    .trim()
+    .replace(/[\s！!。.,，?？~～]/gu, "")
+    .toLowerCase()
+  return (
+    compact.length > 0 &&
+    !/^(你好|您好|嗨|哈喽|谢谢|感谢|好的|好|收到|ok|okay|hi|hello|thanks|thankyou)$/u.test(compact)
+  )
 }
 
 const log = Log.create({ service: "session.prompt" })
@@ -231,6 +237,12 @@ export const layer = Layer.effect(
     const scope = yield* Scope.Scope
     const instruction = yield* Instruction.Service
     const state = yield* SessionRunState.Service
+    const memoryCurators = new Map<SessionID, { fiber?: Fiber.Fiber<unknown, unknown> }>()
+    const cancelMemoryCurator = Effect.fn("SessionPrompt.cancelMemoryCurator")(function* (sessionID: SessionID) {
+      const previous = memoryCurators.get(sessionID)
+      memoryCurators.delete(sessionID)
+      if (previous?.fiber) yield* Fiber.interrupt(previous.fiber)
+    })
     const revert = yield* SessionRevert.Service
     const summary = yield* SessionSummary.Service
     const sys = yield* SystemPrompt.Service
@@ -270,10 +282,14 @@ export const layer = Layer.effect(
             .flatMap((message) => {
               if (message.info.role !== "user" && message.info.role !== "assistant") return []
               const text = memoryMessageText(message)
-              return text ? [`${message.info.role === "user" ? "User" : "Assistant"}: ${EpisodicMemory.truncate(text, 2_000)}`] : []
+              return text
+                ? [`${message.info.role === "user" ? "User" : "Assistant"}: ${EpisodicMemory.truncate(text, 2_000)}`]
+                : []
             })
             .join("\n"),
-        ].join("\n").slice(-12_000)
+        ]
+          .join("\n")
+          .slice(-12_000)
         let existingUserHint = ""
         if (memory) {
           existingUserHint = yield* memory.read({ sessionID: input.sessionID, scope: "user" }).pipe(
@@ -353,7 +369,9 @@ export const layer = Layer.effect(
           EpisodicMemory.truncate(input.userText, 4_000),
           "",
           "Current assistant output:",
-          input.assistantText ? EpisodicMemory.truncate(input.assistantText, 4_000) : "(not available in the user phase)",
+          input.assistantText
+            ? EpisodicMemory.truncate(input.assistantText, 4_000)
+            : "(not available in the user phase)",
           ...(input.correction
             ? [
                 "",
@@ -366,34 +384,52 @@ export const layer = Layer.effect(
         const billedParts: MessageV2.StepFinishPart[] = []
         return yield* Effect.tryPromise({
           try: (signal) =>
-            retryMemoryJsonOutput(
-              async (attemptPrompt) => {
-                const result = await generateText({
-                    model: language,
-                    output: Output.json(),
-                    prompt: attemptPrompt,
-                    maxOutputTokens: 1536,
-                    abortSignal: signal,
-                    temperature: 0,
-                    maxRetries: 0,
-                    providerOptions:
-                      model.providerID === "deepseek" ? { deepseek: { thinking: { type: "disabled" } } } : undefined,
-                  })
-                billedParts.push(auxiliaryUsagePart({
-                  sessionID: input.sessionID, messageID: input.userMessageID ?? latestUser.info.id,
-                  reason: "memory-curation", model, usage: result.totalUsage,
-                }))
-                return result.output
-              },
-              prompt,
-            ),
+            retryMemoryJsonOutput(async (attemptPrompt) => {
+              signal.throwIfAborted()
+              const result = await generateText({
+                model: language,
+                output: Output.json(),
+                prompt: attemptPrompt,
+                maxOutputTokens: 1536,
+                abortSignal: signal,
+                temperature: 0,
+                maxRetries: 0,
+                providerOptions:
+                  model.providerID === "deepseek" ? { deepseek: { thinking: { type: "disabled" } } } : undefined,
+              }).catch((error: unknown) => {
+                if (NoObjectGeneratedError.isInstance(error) && error.usage) {
+                  billedParts.push(auxiliaryUsagePart({
+                    sessionID: input.sessionID, messageID: input.userMessageID ?? latestUser.info.id,
+                    reason: "memory-curation", model, usage: error.usage,
+                  }))
+                }
+                throw error
+              })
+              billedParts.push(
+                auxiliaryUsagePart({
+                  sessionID: input.sessionID,
+                  messageID: input.userMessageID ?? latestUser.info.id,
+                  reason: "memory-curation",
+                  model,
+                  usage: result.totalUsage,
+                }),
+              )
+              return result.output
+            }, prompt),
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        }).pipe(Effect.ensuring(Effect.suspend(() =>
-          Effect.forEach(billedParts, (part) => sessions.updatePart(part), { discard: true }).pipe(Effect.ignore),
-        )))
+        }).pipe(
+          Effect.ensuring(
+            Effect.suspend(() =>
+              Effect.forEach(billedParts, (part) => sessions.updatePart(part), { discard: true }).pipe(Effect.ignore),
+            ),
+          ),
+        )
       })
     const generateDigest = Effect.fn("SessionPrompt.generateDigest")(function* (
-      prompt: string, model: Provider.Model, sessionID: SessionID, messageID: MessageID,
+      prompt: string,
+      model: Provider.Model,
+      sessionID: SessionID,
+      messageID: MessageID,
     ) {
       const agent = yield* agents.get("compaction")
       const digestModel = agent.model
@@ -401,19 +437,28 @@ export const layer = Layer.effect(
         : model
       const language = yield* provider.getLanguage(digestModel)
       const result = yield* Effect.tryPromise({
-        try: (signal) => generateText({
-              model: language,
-              prompt,
-              maxOutputTokens: 4096,
-              temperature: 0,
-              maxRetries: 1,
-              abortSignal: signal,
-            }),
+        try: (signal) =>
+          generateText({
+            model: language,
+            prompt,
+            maxOutputTokens: 4096,
+            temperature: 0,
+            maxRetries: 1,
+            abortSignal: signal,
+          }),
         catch: (error) => (error instanceof Error ? error : new Error(String(error))),
       }).pipe(Effect.timeout("30 seconds"))
-      yield* sessions.updatePart(auxiliaryUsagePart({
-        sessionID, messageID, reason: "memory-digest", model: digestModel, usage: result.totalUsage,
-      })).pipe(Effect.ignore)
+      yield* sessions
+        .updatePart(
+          auxiliaryUsagePart({
+            sessionID,
+            messageID,
+            reason: "memory-digest",
+            model: digestModel,
+            usage: result.totalUsage,
+          }),
+        )
+        .pipe(Effect.ignore)
       return result.text
     })
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
@@ -429,6 +474,7 @@ export const layer = Layer.effect(
 
     const cancel = Effect.fn("SessionPrompt.cancel")(function* (sessionID: SessionID) {
       yield* elog.info("cancel", { sessionID })
+      yield* cancelMemoryCurator(sessionID)
       if (permission.cancelSession) yield* permission.cancelSession(sessionID)
       const cancelQuestion = question?.cancelSession
       if (cancelQuestion) yield* cancelQuestion(sessionID)
@@ -1409,7 +1455,14 @@ export const layer = Layer.effect(
         const slog = elog.with({ sessionID })
         let structured: unknown
         let latestMemoryUserText = ""
-        let completedMemoryTurn: (Memory.TurnText & { userText: string; history: MessageV2.WithParts[]; userMessageID: MessageID; hasActivity: boolean }) | undefined
+        let completedMemoryTurn:
+          | (Memory.TurnText & {
+              userText: string
+              history: MessageV2.WithParts[]
+              userMessageID: MessageID
+              hasActivity: boolean
+            })
+          | undefined
         let step = 0
         let session = yield* sessions.get(sessionID).pipe(Effect.orDie)
         const childBudget = childBudgetFor(sessionID)
@@ -1590,6 +1643,7 @@ export const layer = Layer.effect(
           const latestUserIsSynthetic =
             latestUserMsg?.parts.some((part) => part.type === "text" && part.synthetic) ?? false
           if (lastUser.id !== lastUserID && !latestUserIsSynthetic) {
+            yield* cancelMemoryCurator(sessionID)
             step = 0
             imageRecovery.omitImages = false
             planCreateFailures = 0
@@ -2128,11 +2182,13 @@ export const layer = Layer.effect(
             // later tool-loop steps where the step-1 system prompt is gone.
             // Task memory and user profile stay root-only; experiences are
             // also open to subagents (read-only) so they can reuse lessons.
-            const combinedMemory = canUsePersistentMemory && memory?.contextSnapshot
-              ? yield* memory.contextSnapshot(sessionID).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
-              : undefined
-            const memorySnapshot = combinedMemory?.text ?? (
-              canUsePersistentMemory && memory
+            const combinedMemory =
+              canUsePersistentMemory && memory?.contextSnapshot
+                ? yield* memory.contextSnapshot(sessionID).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
+                : undefined
+            const memorySnapshot =
+              combinedMemory?.text ??
+              (canUsePersistentMemory && memory
                 ? yield* memory.formatWithHeader(sessionID, "memory").pipe(
                     Effect.andThen((mem) =>
                       memory!.formatWithHeader(sessionID, "user").pipe(Effect.map((user) => [mem, user].join("\n"))),
@@ -2142,9 +2198,11 @@ export const layer = Layer.effect(
                 : undefined)
             const experienceSnapshot =
               experienceMemory && memory
-                ? yield* (combinedMemory
-                    ? Effect.succeed([combinedMemory.keywords, combinedMemory.content] as const)
-                    : Effect.all([memory.currentTaskKeywords(sessionID), memory.currentTaskContent(sessionID)])).pipe(
+                ? yield* (
+                    combinedMemory
+                      ? Effect.succeed([combinedMemory.keywords, combinedMemory.content] as [string[], string | undefined])
+                      : Effect.all([memory.currentTaskKeywords(sessionID), memory.currentTaskContent(sessionID)])
+                  ).pipe(
                     Effect.andThen(([keywords, content]) =>
                       experienceMemory!.formatExperienceSnapshot(
                         sessionID,
@@ -2180,11 +2238,13 @@ export const layer = Layer.effect(
             if (Option.isSome(sessionState)) {
               system.push(
                 SessionState.formatSessionState(sessionState.value, {
-                  omitTurnDetails: Option.isSome(episodicDigest) || (
-                    msgs.some((message) => message.info.id === sessionState.value.lastUserID) &&
-                    msgs.some((message) => message.info.id === sessionState.value.lastAssistantID)
-                  ),
-                  omitRollingSummary: Option.isSome(episodicDigest) || msgs.some((message) => message.info.id === sessionState.value.summaryID),
+                  omitTurnDetails:
+                    Option.isSome(episodicDigest) ||
+                    (msgs.some((message) => message.info.id === sessionState.value.lastUserID) &&
+                      msgs.some((message) => message.info.id === sessionState.value.lastAssistantID)),
+                  omitRollingSummary:
+                    Option.isSome(episodicDigest) ||
+                    msgs.some((message) => message.info.id === sessionState.value.summaryID),
                 }),
               )
             }
@@ -2453,18 +2513,37 @@ export const layer = Layer.effect(
                 .map((part) => part.text.trim())
                 .filter(Boolean)
                 .join("\n\n")
-              const history = structuredClone([...msgs.filter((message) => message.info.id !== handle.message.id), { info: handle.message, parts }])
-              const realUserIndex = history.findLastIndex((message) => message.info.role === "user" && message.parts.some((part) =>
-                (part.type === "text" && !part.synthetic) || part.type === "file" || part.type === "agent" || part.type === "subtask",
-              ))
+              const history = structuredClone([
+                ...msgs.filter((message) => message.info.id !== handle.message.id),
+                { info: handle.message, parts },
+              ])
+              const realUserIndex = history.findLastIndex(
+                (message) =>
+                  message.info.role === "user" &&
+                  message.parts.some(
+                    (part) =>
+                      (part.type === "text" && !part.synthetic) ||
+                      part.type === "file" ||
+                      part.type === "agent" ||
+                      part.type === "subtask",
+                  ),
+              )
               const realUser = history[realUserIndex]
               if (realUser) {
                 completedMemoryTurn = {
-                  userText: latestMemoryUserText, assistantText, history, userMessageID: realUser.info.id,
+                  userText: latestMemoryUserText,
+                  assistantText,
+                  history,
+                  userMessageID: realUser.info.id,
                   assistantMessageID: handle.message.id,
                   failureHint: lastToolFailureHint(history),
-                  hasActivity: history.slice(realUserIndex).some((message) => message.parts.some((part) =>
-                    part.type === "tool" || part.type === "patch" || part.type === "file")),
+                  hasActivity: history
+                    .slice(realUserIndex)
+                    .some((message) =>
+                      message.parts.some(
+                        (part) => part.type === "tool" || part.type === "patch" || part.type === "file",
+                      ),
+                    ),
                 }
               }
               const toolNames = [
@@ -2524,49 +2603,52 @@ export const layer = Layer.effect(
                   })
                   .pipe(
                     Effect.catch(() => Effect.succeed(false)),
-                    Effect.flatMap((digestDue) => !digestDue ? Effect.void :
-                      Effect.forkIn(
-                        Effect.gen(function* () {
-                          if (digestDue) {
-                            yield* events
-                              .publish(SessionEvent.Compaction.Started, {
-                                sessionID,
-                                timestamp: DateTime.makeUnsafe(Date.now()),
-                                reason: "auto",
-                              })
-                              .pipe(Effect.ignore)
-                          }
-                          yield* episodic
-                            .compactIfDue({
-                              sessionID,
-                              workspaceRoot: ctx.directory,
-                              reason: "interval",
-                              totalTurns: countRealUserTurns(msgs),
-                              backfillText: undefined,
-                              previousSummary: summary,
-                              generate: (prompt) => generateDigest(prompt, model, sessionID, lastUser.id).pipe(Effect.orDie),
-                            })
-                            .pipe(
-                              Effect.catchCause((cause) =>
-                                slog.warn("episodic digest failed; will retry on next trigger", {
-                                  cause: Cause.pretty(cause),
-                                }),
-                              ),
-                              Effect.ensuring(
-                                digestDue
-                                  ? events
-                                      .publish(SessionEvent.Compaction.Ended, {
-                                        sessionID,
-                                        timestamp: DateTime.makeUnsafe(Date.now()),
-                                        text: "episodic digest",
-                                      })
-                                      .pipe(Effect.ignore)
-                                  : Effect.void,
-                              ),
-                            )
-                        }),
-                        scope,
-                      ),
+                    Effect.flatMap((digestDue) =>
+                      !digestDue
+                        ? Effect.void
+                        : Effect.forkIn(
+                            Effect.gen(function* () {
+                              if (digestDue) {
+                                yield* events
+                                  .publish(SessionEvent.Compaction.Started, {
+                                    sessionID,
+                                    timestamp: DateTime.makeUnsafe(Date.now()),
+                                    reason: "auto",
+                                  })
+                                  .pipe(Effect.ignore)
+                              }
+                              yield* episodic
+                                .compactIfDue({
+                                  sessionID,
+                                  workspaceRoot: ctx.directory,
+                                  reason: "interval",
+                                  totalTurns: countRealUserTurns(msgs),
+                                  backfillText: undefined,
+                                  previousSummary: summary,
+                                  generate: (prompt) =>
+                                    generateDigest(prompt, model, sessionID, lastUser.id).pipe(Effect.orDie),
+                                })
+                                .pipe(
+                                  Effect.catchCause((cause) =>
+                                    slog.warn("episodic digest failed; will retry on next trigger", {
+                                      cause: Cause.pretty(cause),
+                                    }),
+                                  ),
+                                  Effect.ensuring(
+                                    digestDue
+                                      ? events
+                                          .publish(SessionEvent.Compaction.Ended, {
+                                            sessionID,
+                                            timestamp: DateTime.makeUnsafe(Date.now()),
+                                            text: "episodic digest",
+                                          })
+                                          .pipe(Effect.ignore)
+                                      : Effect.void,
+                                  ),
+                                )
+                            }),
+                            scope,
+                          ),
                     ),
                   )
               }
@@ -2638,28 +2720,46 @@ export const layer = Layer.effect(
           const turn = completedMemoryTurn
           const history = turn.history
           if (shouldCurateMemory(turn.userText, turn.hasActivity)) {
-            yield* Effect.forkIn(
+            const holder: { fiber?: Fiber.Fiber<unknown, unknown> } = {}
+            memoryCurators.set(sessionID, holder)
+            holder.fiber = yield* Effect.forkIn(
               Effect.gen(function* () {
                 const curated = yield* memory.updateAfterTurn(sessionID, evaluateMemoryDecision, turn).pipe(
                   Effect.timeout("30 seconds"),
-                  Effect.catchCause((cause) => slog.warn("persistent memory update failed after assistant response", {
-                    cause: Cause.pretty(cause),
-                  }).pipe(Effect.as(undefined))),
+                  Effect.catchCause((cause) =>
+                    slog
+                      .warn("persistent memory update failed after assistant response", {
+                        cause: Cause.pretty(cause),
+                      })
+                      .pipe(Effect.as(undefined)),
+                  ),
                 )
                 if (curated?.status === "updated" && experienceMemory) {
                   const current = yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
-                  const latestUser = current.findLast((message) => message.info.role === "user" && message.parts.some((part) =>
-                    (part.type === "text" && !part.synthetic) || part.type === "file" || part.type === "agent" || part.type === "subtask",
-                  ))
+                  const latestUser = current.findLast(
+                    (message) =>
+                      message.info.role === "user" &&
+                      message.parts.some(
+                        (part) =>
+                          (part.type === "text" && !part.synthetic) ||
+                          part.type === "file" ||
+                          part.type === "agent" ||
+                          part.type === "subtask",
+                      ),
+                  )
                   if (latestUser?.info.id !== turn.userMessageID) return
-                  yield* experienceMemory.upsertMany(sessionID, curated.experienceCandidates, session.directory).pipe(Effect.ignore)
+                  yield* experienceMemory
+                    .upsertMany(sessionID, curated.experienceCandidates, session.directory)
+                    .pipe(Effect.ignore)
                   const turnCount = countRealUserTurns(history)
                   if (turnCount > 0 && turnCount % ExperienceMemory.EXPERIENCE_MAINTENANCE_INTERVAL_TURNS === 0) {
                     yield* experienceMemory.maintain(sessionID, session.directory).pipe(Effect.ignore)
                   }
                 }
                 if (curated) yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
-              }),
+              }).pipe(Effect.ensuring(Effect.sync(() => {
+                if (memoryCurators.get(sessionID) === holder) memoryCurators.delete(sessionID)
+              }))),
               scope,
             )
           }

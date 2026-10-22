@@ -166,8 +166,12 @@ function sanitizeEpisodeTurn(turn: EpisodeTurn): EpisodeTurn {
     const bounded = {
       tool: sanitizeEpisodeText(call.tool, 200),
       input: sanitizeEpisodeText(call.input, Math.min(EPISODE_INPUT_MAX_CHARS, Math.floor(chars / 3))),
-      ...(call.output ? { output: sanitizeEpisodeText(call.output, Math.min(EPISODE_OUTPUT_MAX_CHARS, Math.floor(chars / 3))) } : {}),
-      ...(call.error ? { error: sanitizeEpisodeText(call.error, Math.min(EPISODE_OUTPUT_MAX_CHARS, Math.floor(chars / 3))) } : {}),
+      ...(call.output
+        ? { output: sanitizeEpisodeText(call.output, Math.min(EPISODE_OUTPUT_MAX_CHARS, Math.floor(chars / 3))) }
+        : {}),
+      ...(call.error
+        ? { error: sanitizeEpisodeText(call.error, Math.min(EPISODE_OUTPUT_MAX_CHARS, Math.floor(chars / 3))) }
+        : {}),
     }
     const size = Buffer.byteLength(JSON.stringify(bounded), "utf8") + 1
     if (size > remaining) break
@@ -288,17 +292,17 @@ export const layer = Layer.effect(
     ) {
       const target = episodesPath(workspaceRoot, sessionID)
       const text = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
-      const episodes: EpisodeTurn[] = []
+      const episodes = new Map<number, EpisodeTurn>()
       for (const line of text.split("\n")) {
         if (!line.trim()) continue
         try {
           const parsed = JSON.parse(line) as EpisodeTurn
-          if (parsed.version === 1 && typeof parsed.turn === "number") episodes.push(parsed)
+          if (parsed.version === 1 && typeof parsed.turn === "number") episodes.set(parsed.turn, parsed)
         } catch (error) {
           log.warn("skipping corrupt episode line", { sessionID, error: String(error) })
         }
       }
-      return episodes
+      return [...episodes.values()].sort((left, right) => left.turn - right.turn)
     })
 
     const readIndex = Effect.fn("EpisodicMemory.readIndex")(function* (workspaceRoot: string, sessionID: SessionID) {
@@ -325,6 +329,16 @@ export const layer = Layer.effect(
       yield* fs.rename(temp, target).pipe(Effect.ensuring(fs.remove(temp, { force: true }).pipe(Effect.ignore)))
     })
 
+    const recordMetadata = new Map<string, { signature: string; latestTurn: number; count: number; oldestTime: number; writes: number }>()
+    const fileSignature = Effect.fn("EpisodicMemory.fileSignature")(function* (target: string) {
+      const info = yield* fs.stat(target).pipe(Effect.option)
+      if (Option.isNone(info)) return undefined
+      return {
+        bytes: Number(info.value.size),
+        signature: `${info.value.size}:${Option.getOrUndefined(info.value.mtime)?.getTime()}:${Option.getOrUndefined(info.value.ctime)?.getTime()}:${Option.getOrUndefined(info.value.ino)}`,
+      }
+    })
+
     const recordTurn = Effect.fn("EpisodicMemory.recordTurn")(function* (input: {
       sessionID: SessionID
       workspaceRoot: string
@@ -334,6 +348,21 @@ export const layer = Layer.effect(
       const safeTurn = sanitizeEpisodeTurn(input.turn)
       yield* flock.withLock(
         Effect.gen(function* () {
+          const currentFile = yield* fileSignature(target)
+          const cached = recordMetadata.get(target)
+          const line = JSON.stringify(safeTurn) + "\n"
+          if (cached && currentFile?.signature === cached.signature && safeTurn.turn >= cached.latestTurn &&
+            cached.writes < 24 && cached.count < EPISODE_RETENTION_TURNS &&
+            cached.oldestTime >= Date.now() - EPISODE_RETENTION_DAYS * 86_400_000 &&
+            currentFile.bytes + Buffer.byteLength(line, "utf8") <= EPISODE_STORE_MAX_BYTES) {
+            // Append bounded revisions and deduplicate on read. External edits,
+            // periodic retention and capacity boundaries use the atomic rewrite below.
+            yield* fs.writeFileString(target, line, { flag: "a" }).pipe(Effect.orDie)
+            const written = yield* fileSignature(target)
+            if (written) recordMetadata.set(target, { ...cached, signature: written.signature, latestTurn: safeTurn.turn,
+              count: cached.count + (safeTurn.turn > cached.latestTurn ? 1 : 0), writes: cached.writes + 1 })
+            return
+          }
           const current = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
           const revisions = new Map<number, EpisodeTurn>()
           for (const line of current.split("\n")) {
@@ -360,15 +389,25 @@ export const layer = Layer.effect(
             .sort((a, b) => a.turn - b.turn)
           const lines: string[] = []
           let bytes = 0
+          let oldestTime = Date.now()
           for (const episode of retained.reverse()) {
             let line = JSON.stringify(episode)
-            if (Buffer.byteLength(line, "utf8") > EPISODE_TURN_MAX_BYTES) line = JSON.stringify(sanitizeEpisodeTurn(episode))
+            if (Buffer.byteLength(line, "utf8") > EPISODE_TURN_MAX_BYTES)
+              line = JSON.stringify(sanitizeEpisodeTurn(episode))
             const size = Buffer.byteLength(line, "utf8") + 1
             if (bytes + size > EPISODE_STORE_MAX_BYTES) break
             lines.push(line)
             bytes += size
+            const timestamp = Date.parse(episode.time)
+            if (Number.isFinite(timestamp)) oldestTime = Math.min(oldestTime, timestamp)
           }
           yield* writeFileAtomic(target, lines.reverse().join("\n") + "\n")
+          const written = yield* fileSignature(target)
+          if (written) {
+            recordMetadata.delete(target)
+            recordMetadata.set(target, { signature: written.signature, latestTurn: newestTurn, count: lines.length, oldestTime, writes: 0 })
+            if (recordMetadata.size > 64) recordMetadata.delete(recordMetadata.keys().next().value!)
+          }
         }),
         target,
       )
@@ -513,8 +552,12 @@ export const layer = Layer.effect(
               yield* writeFileAtomic(indexTarget, JSON.stringify(next, null, 2))
               const retainedSeqs = new Set(next.entries.map((entry) => entry.seq))
               if (Option.isSome(current)) {
-                yield* Effect.forEach(current.value.entries.filter((entry) => !retainedSeqs.has(entry.seq)), (entry) =>
-                  fs.remove(digestFilePath(input.workspaceRoot, input.sessionID, entry.seq), { force: true }).pipe(Effect.ignore),
+                yield* Effect.forEach(
+                  current.value.entries.filter((entry) => !retainedSeqs.has(entry.seq)),
+                  (entry) =>
+                    fs
+                      .remove(digestFilePath(input.workspaceRoot, input.sessionID, entry.seq), { force: true })
+                      .pipe(Effect.ignore),
                   { discard: true },
                 )
               }

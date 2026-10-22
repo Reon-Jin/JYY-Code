@@ -21,8 +21,13 @@ const episode = {
 describe("episodic digest prompt", () => {
   it("bounds the whole prompt for large histories and keeps recent turns", () => {
     const prompt = buildDigestPrompt({
-      previousDigest: "旧".repeat(20_000), backfillText: "历史".repeat(30_000),
-      episodes: Array.from({ length: 100 }, (_, index) => ({ ...episode, turn: index + 1, assistantText: "回复".repeat(10_000) })),
+      previousDigest: "旧".repeat(20_000),
+      backfillText: "历史".repeat(30_000),
+      episodes: Array.from({ length: 100 }, (_, index) => ({
+        ...episode,
+        turn: index + 1,
+        assistantText: "回复".repeat(10_000),
+      })),
     })
     expect(prompt.length).toBeLessThanOrEqual(DIGEST_PROMPT_MAX_CHARS)
     expect(prompt).toContain("Turn 100")

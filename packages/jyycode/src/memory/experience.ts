@@ -547,12 +547,16 @@ export const layerWithDirectory = (directory: string, options: { legacyDirectory
             const outcome = maintainStore(store)
             const next: ExperienceStore = { schemaVersion: 1, lastMaintainedAt: localDate(), entries: outcome.entries }
             yield* writeStore(sessionID, next, workspaceRoot)
-            yield* appendAudit(sessionID, {
-              action: "memory.experience.maintain",
-              removed: outcome.removed,
-              merged: outcome.merged,
-              retained: outcome.entries.length,
-            }, workspaceRoot)
+            yield* appendAudit(
+              sessionID,
+              {
+                action: "memory.experience.maintain",
+                removed: outcome.removed,
+                merged: outcome.merged,
+                retained: outcome.entries.length,
+              },
+              workspaceRoot,
+            )
             return { removed: outcome.removed, merged: outcome.merged, retained: outcome.entries.length }
           }),
           target,

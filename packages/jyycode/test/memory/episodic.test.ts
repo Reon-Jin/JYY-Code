@@ -82,6 +82,81 @@ function episode(turn: number): EpisodicMemory.EpisodeTurn {
 }
 
 describe("EpisodicMemory", () => {
+  it.live("appends ordinary revisions without rescanning all history", () =>
+    Effect.gen(function* () {
+      const root = yield* tmpdirScoped()
+      const fsys = yield* AppFileSystem.Service
+      let reads = 0
+      const mocked = AppFileSystem.Service.of({ ...fsys, readFileStringSafe: (target) => {
+        if (target.endsWith(".jsonl")) reads++
+        return fsys.readFileStringSafe(target)
+      } })
+      yield* EpisodicMemory.Service.use((memory) => Effect.gen(function* () {
+        for (let step = 0; step < 5; step++) {
+          yield* memory.recordTurn({ sessionID, workspaceRoot: root, turn: { ...episode(1), assistantText: `step ${step}` } })
+        }
+        expect(reads).toBe(1)
+        const latest = yield* memory.readEpisode({ sessionID, workspaceRoot: root, turn: 1 })
+        expect(Option.isSome(latest) && latest.value.assistantText).toBe("step 4")
+      })).pipe(Effect.provide(EpisodicMemory.layer.pipe(Layer.provide(Layer.succeed(AppFileSystem.Service, mocked)))))
+    }),
+  )
+  it.live("bounds a heavy turn by serialized byte size", () =>
+    Effect.gen(function* () {
+      const root = yield* tmpdirScoped()
+      const memory = yield* EpisodicMemory.Service
+      const fsys = yield* AppFileSystem.Service
+      yield* memory.recordTurn({
+        sessionID,
+        workspaceRoot: root,
+        turn: {
+          ...episode(1),
+          assistantText: "结果".repeat(40_000),
+          toolCalls: Array.from({ length: 200 }, () => ({
+            tool: "bash",
+            input: "命令".repeat(8_000),
+            output: "输出".repeat(60_000),
+          })),
+        },
+      })
+      const raw = (yield* fsys.readFileStringSafe(EpisodicMemory.episodesPath(root, sessionID)))!
+      expect(Buffer.byteLength(raw, "utf8")).toBeLessThanOrEqual(EpisodicMemory.EPISODE_TURN_MAX_BYTES + 1)
+      expect(JSON.parse(raw).assistantText).toContain("结果")
+      expect(JSON.parse(raw).toolCalls.length).toBeGreaterThan(0)
+    }),
+  )
+
+  it.live("does not scan episodes when the digest interval is not due", () =>
+    Effect.gen(function* () {
+      const root = yield* tmpdirScoped()
+      const fsys = yield* AppFileSystem.Service
+      let reads = 0
+      const mocked = AppFileSystem.Service.of({
+        ...fsys,
+        readFileStringSafe: (target) => {
+          if (target.endsWith(".jsonl")) reads++
+          return fsys.readFileStringSafe(target)
+        },
+      })
+      yield* EpisodicMemory.Service.use((memory) =>
+        Effect.gen(function* () {
+          expect(yield* memory.isDigestDue({ sessionID, workspaceRoot: root, reason: "interval", totalTurns: 1 })).toBe(
+            false,
+          )
+          expect(
+            (yield* memory.compactIfDue({
+              sessionID,
+              workspaceRoot: root,
+              reason: "interval",
+              totalTurns: 1,
+              generate: () => Effect.die("unexpected model call"),
+            })).status,
+          ).toBe("skipped")
+        }),
+      ).pipe(Effect.provide(EpisodicMemory.layer.pipe(Layer.provide(Layer.succeed(AppFileSystem.Service, mocked)))))
+      expect(reads).toBe(0)
+    }),
+  )
   it.live("records and reads episodes", () =>
     Effect.gen(function* () {
       const root = yield* tmpdirScoped()
@@ -163,7 +238,10 @@ describe("EpisodicMemory", () => {
       if (Option.isSome(found)) expect(found.value.assistantText).toContain("final answer")
       const fs = yield* AppFileSystem.Service
       const raw = (yield* fs.readFileStringSafe(EpisodicMemory.episodesPath(root, sessionID)).pipe(Effect.orDie)) ?? ""
-      expect(raw.trim().split("\n")).toHaveLength(1)
+      expect(raw.trim().split("\n")).toHaveLength(2)
+      const hits = yield* memory.searchEpisodes({ sessionID, workspaceRoot: root, query: "request 7" })
+      expect(hits).toHaveLength(1)
+      expect(hits[0]?.assistantText).toContain("final answer")
     }),
   )
 

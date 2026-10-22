@@ -81,10 +81,12 @@ export const writeSessionState = Effect.fn("SessionState.write")(function* (
   }
   const target = sessionStatePath(workspaceRoot, sessionID)
   const temp = `${target}.${randomUUID()}.tmp`
-  yield* fsys.writeWithDirs(temp, JSON.stringify(safe, null, 2)).pipe(
-    Effect.andThen(fsys.rename(temp, target)),
-    Effect.ensuring(fsys.remove(temp, { force: true }).pipe(Effect.ignore)),
-  )
+  yield* fsys
+    .writeWithDirs(temp, JSON.stringify(safe, null, 2))
+    .pipe(
+      Effect.andThen(fsys.rename(temp, target)),
+      Effect.ensuring(fsys.remove(temp, { force: true }).pipe(Effect.ignore)),
+    )
 })
 
 export function formatSessionState(
@@ -109,7 +111,7 @@ export function formatSessionState(
   if (state.tailStartID) {
     lines.push("", `compacted before: ${state.tailStartID}`)
   }
-  return untrustedMemoryBlock("session-state", lines.join("\n").slice(0, SESSION_STATE_MAX_CHARS))
+  return untrustedMemoryBlock("session-state", sanitizeForPersistence(lines.join("\n")).text.slice(0, SESSION_STATE_MAX_CHARS))
 }
 
 export const SessionState = {
