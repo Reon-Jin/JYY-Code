@@ -1,7 +1,6 @@
 import type { SnapshotFileDiff, VcsFileDiff } from "@jyycode-ai/sdk/v2/client"
 import { ChevronDown, ChevronUp, FileDiff } from "lucide-solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
-import { Button } from "../../components/ui/button"
 import { useOptionalData } from "../../data/context"
 import { tr } from "../../i18n/i18n-context"
 import { ChangeFile } from "../changes/change-file"
@@ -180,25 +179,6 @@ export function TurnChanges(props: { summary: TurnChangeSummary }) {
               <i>-{changes().reduce((sum, change) => sum + change.deletions, 0)}</i>
             </span>
           </div>
-          <Button
-            size="small"
-            variant="secondary"
-            onClick={() => {
-              if (expanded().size) setExpanded(new Set<string>())
-              else {
-                setShowAll(true)
-                setExpanded(
-                  new Set(
-                    changes()
-                      .slice(0, 1)
-                      .map((change) => change.file),
-                  ),
-                )
-              }
-            }}
-          >
-            {tr(expanded().size ? "conversation.hide-changes" : "conversation.view-changes")}
-          </Button>
         </header>
         <ul class="turn-changes__files">
           <For each={visible().map((change) => change.file)}>

@@ -87,18 +87,27 @@ describe("EpisodicMemory", () => {
       const root = yield* tmpdirScoped()
       const fsys = yield* AppFileSystem.Service
       let reads = 0
-      const mocked = AppFileSystem.Service.of({ ...fsys, readFileStringSafe: (target) => {
-        if (target.endsWith(".jsonl")) reads++
-        return fsys.readFileStringSafe(target)
-      } })
-      yield* EpisodicMemory.Service.use((memory) => Effect.gen(function* () {
-        for (let step = 0; step < 5; step++) {
-          yield* memory.recordTurn({ sessionID, workspaceRoot: root, turn: { ...episode(1), assistantText: `step ${step}` } })
-        }
-        expect(reads).toBe(1)
-        const latest = yield* memory.readEpisode({ sessionID, workspaceRoot: root, turn: 1 })
-        expect(Option.isSome(latest) && latest.value.assistantText).toBe("step 4")
-      })).pipe(Effect.provide(EpisodicMemory.layer.pipe(Layer.provide(Layer.succeed(AppFileSystem.Service, mocked)))))
+      const mocked = AppFileSystem.Service.of({
+        ...fsys,
+        readFileStringSafe: (target) => {
+          if (target.endsWith(".jsonl")) reads++
+          return fsys.readFileStringSafe(target)
+        },
+      })
+      yield* EpisodicMemory.Service.use((memory) =>
+        Effect.gen(function* () {
+          for (let step = 0; step < 5; step++) {
+            yield* memory.recordTurn({
+              sessionID,
+              workspaceRoot: root,
+              turn: { ...episode(1), assistantText: `step ${step}` },
+            })
+          }
+          expect(reads).toBe(1)
+          const latest = yield* memory.readEpisode({ sessionID, workspaceRoot: root, turn: 1 })
+          expect(Option.isSome(latest) && latest.value.assistantText).toBe("step 4")
+        }),
+      ).pipe(Effect.provide(Layer.fresh(EpisodicMemory.layer.pipe(Layer.provide(Layer.succeed(AppFileSystem.Service, mocked))))))
     }),
   )
   it.live("bounds a heavy turn by serialized byte size", () =>
@@ -153,7 +162,7 @@ describe("EpisodicMemory", () => {
             })).status,
           ).toBe("skipped")
         }),
-      ).pipe(Effect.provide(EpisodicMemory.layer.pipe(Layer.provide(Layer.succeed(AppFileSystem.Service, mocked)))))
+      ).pipe(Effect.provide(Layer.fresh(EpisodicMemory.layer.pipe(Layer.provide(Layer.succeed(AppFileSystem.Service, mocked))))))
       expect(reads).toBe(0)
     }),
   )

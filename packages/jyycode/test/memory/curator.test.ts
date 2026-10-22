@@ -61,10 +61,11 @@ function fixture(input?: { parentID?: SessionID; multiAgent?: boolean; projectID
         ...fs,
         ensureDir: () => Effect.void,
         existsSafe: (target) => Effect.succeed(files.has(target)),
-        readFileStringSafe: (target) => Effect.sync(() => {
-          reads.push(target)
-          return files.get(target)
-        }),
+        readFileStringSafe: (target) =>
+          Effect.sync(() => {
+            reads.push(target)
+            return files.get(target)
+          }),
         writeFileString: (target, content) => Effect.sync(() => void files.set(target, content)),
         rename: (from, to) =>
           Effect.sync(() => {
@@ -109,29 +110,42 @@ function fixture(input?: { parentID?: SessionID; multiAgent?: boolean; projectID
 describe("two-phase semantic memory curator", () => {
   test("builds one context snapshot with one read of each initialized store", async () => {
     const ctx = fixture()
-    await ctx.run(Effect.gen(function* () {
-      const memory = yield* Memory.Service
-      yield* memory.ensure(sessionID)
-      ctx.reads.length = 0
-      const snapshot = yield* memory.contextSnapshot!(sessionID)
-      expect(snapshot.text).toContain("TASK MEMORY")
-      expect(ctx.reads.filter((target) => target === ctx.memoryPath)).toHaveLength(1)
-      expect(ctx.reads.filter((target) => target === ctx.userPath)).toHaveLength(1)
-    }))
+    await ctx.run(
+      Effect.gen(function* () {
+        const memory = yield* Memory.Service
+        yield* memory.ensure(sessionID)
+        ctx.reads.length = 0
+        const snapshot = yield* memory.contextSnapshot!(sessionID)
+        expect(snapshot.text).toContain("TASK MEMORY")
+        expect(ctx.reads.filter((target) => target === ctx.memoryPath)).toHaveLength(1)
+        expect(ctx.reads.filter((target) => target === ctx.userPath)).toHaveLength(1)
+      }),
+    )
   })
 
   test("rejects an obsolete assistant revision even if the user turn has not changed", async () => {
     const ctx = fixture()
     const history = messages("原请求", "原回复", "revision")
     ctx.setMessages(history)
-    const result = await ctx.run(Memory.Service.use((memory) => memory.updateAfterTurn(sessionID, () => {
-      const continued = messages("原请求", "续写回复", "continued")[1]!
-      ctx.setMessages([...history, continued])
-      return Effect.succeed(decision("当前任务：原任务；进展：旧的回复状态"))
-    }, {
-      userText: "原请求", assistantText: "原回复", history,
-      userMessageID: history[0]!.info.id, assistantMessageID: history[1]!.info.id,
-    })))
+    const result = await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateAfterTurn(
+          sessionID,
+          () => {
+            const continued = messages("原请求", "续写回复", "continued")[1]!
+            ctx.setMessages([...history, continued])
+            return Effect.succeed(decision("当前任务：原任务；进展：旧的回复状态"))
+          },
+          {
+            userText: "原请求",
+            assistantText: "原回复",
+            history,
+            userMessageID: history[0]!.info.id,
+            assistantMessageID: history[1]!.info.id,
+          },
+        ),
+      ),
+    )
     expect(result).toEqual({ status: "skipped", reason: "stale" })
     expect(Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries).toHaveLength(0)
   })

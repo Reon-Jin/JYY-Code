@@ -4157,10 +4157,11 @@ const experienceMemoryLayer = Layer.succeed(
         experienceSnapshotCalls.push([sessionID, [...taskKeywords], taskGoal])
         return ""
       }),
-    maintain: (sessionID, directory) => Effect.sync(() => {
-      experienceMaintenanceCalls.push([sessionID, directory])
-      return { removed: 0, merged: 0, retained: 1 }
-    }),
+    maintain: (sessionID, directory) =>
+      Effect.sync(() => {
+        experienceMaintenanceCalls.push([sessionID, directory])
+        return { removed: 0, merged: 0, retained: 1 }
+      }),
     managementRead: () => Effect.die("unexpected managementRead"),
     managementUpdate: () => Effect.die("unexpected managementUpdate"),
     managementRemove: () => Effect.die("unexpected managementRemove"),
@@ -4218,11 +4219,19 @@ withExperienceWiring.instance("maintains the current workspace experience store 
     const chat = yield* sessions.create({ title: "Experience maintenance" })
     experienceMaintenanceCalls.length = 0
     for (let turn = 1; turn < ExperienceMemory.EXPERIENCE_MAINTENANCE_INTERVAL_TURNS; turn++) {
-      yield* prompt.prompt({ sessionID: chat.id, agent: "build", noReply: true, parts: [{ type: "text", text: `request ${turn}` }] })
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: `request ${turn}` }],
+      })
     }
     yield* llm.text("done")
     yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "finish task" }] })
-    yield* pollWithTimeout(Effect.sync(() => experienceMaintenanceCalls.length ? true : undefined), "experience maintenance did not run")
+    yield* pollWithTimeout(
+      Effect.sync(() => (experienceMaintenanceCalls.length ? true : undefined)),
+      "experience maintenance did not run",
+    )
     expect(experienceMaintenanceCalls).toEqual([[chat.id, dir]])
   }),
 )

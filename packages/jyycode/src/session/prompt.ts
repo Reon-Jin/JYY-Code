@@ -398,10 +398,15 @@ export const layer = Layer.effect(
                   model.providerID === "deepseek" ? { deepseek: { thinking: { type: "disabled" } } } : undefined,
               }).catch((error: unknown) => {
                 if (NoObjectGeneratedError.isInstance(error) && error.usage) {
-                  billedParts.push(auxiliaryUsagePart({
-                    sessionID: input.sessionID, messageID: input.userMessageID ?? latestUser.info.id,
-                    reason: "memory-curation", model, usage: error.usage,
-                  }))
+                  billedParts.push(
+                    auxiliaryUsagePart({
+                      sessionID: input.sessionID,
+                      messageID: input.userMessageID ?? latestUser.info.id,
+                      reason: "memory-curation",
+                      model,
+                      usage: error.usage,
+                    }),
+                  )
                 }
                 throw error
               })
@@ -2200,7 +2205,10 @@ export const layer = Layer.effect(
               experienceMemory && memory
                 ? yield* (
                     combinedMemory
-                      ? Effect.succeed([combinedMemory.keywords, combinedMemory.content] as [string[], string | undefined])
+                      ? Effect.succeed([combinedMemory.keywords, combinedMemory.content] as [
+                          string[],
+                          string | undefined,
+                        ])
                       : Effect.all([memory.currentTaskKeywords(sessionID), memory.currentTaskContent(sessionID)])
                   ).pipe(
                     Effect.andThen(([keywords, content]) =>
@@ -2757,9 +2765,13 @@ export const layer = Layer.effect(
                   }
                 }
                 if (curated) yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
-              }).pipe(Effect.ensuring(Effect.sync(() => {
-                if (memoryCurators.get(sessionID) === holder) memoryCurators.delete(sessionID)
-              }))),
+              }).pipe(
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    if (memoryCurators.get(sessionID) === holder) memoryCurators.delete(sessionID)
+                  }),
+                ),
+              ),
               scope,
             )
           }

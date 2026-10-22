@@ -329,13 +329,16 @@ export const layer = Layer.effect(
       yield* fs.rename(temp, target).pipe(Effect.ensuring(fs.remove(temp, { force: true }).pipe(Effect.ignore)))
     })
 
-    const recordMetadata = new Map<string, { signature: string; latestTurn: number; count: number; oldestTime: number; writes: number }>()
+    const recordMetadata = new Map<
+      string,
+      { signature: string; latestTurn: number; count: number; oldestTime: number; writes: number }
+    >()
     const fileSignature = Effect.fn("EpisodicMemory.fileSignature")(function* (target: string) {
       const info = yield* fs.stat(target).pipe(Effect.option)
       if (Option.isNone(info)) return undefined
       return {
         bytes: Number(info.value.size),
-        signature: `${info.value.size}:${Option.getOrUndefined(info.value.mtime)?.getTime()}:${Option.getOrUndefined(info.value.ctime)?.getTime()}:${Option.getOrUndefined(info.value.ino)}`,
+        signature: `${info.value.size}:${Option.getOrUndefined(info.value.mtime)?.getTime()}:${Option.getOrUndefined(info.value.birthtime)?.getTime()}:${Option.getOrUndefined(info.value.ino)}`,
       }
     })
 
@@ -351,16 +354,27 @@ export const layer = Layer.effect(
           const currentFile = yield* fileSignature(target)
           const cached = recordMetadata.get(target)
           const line = JSON.stringify(safeTurn) + "\n"
-          if (cached && currentFile?.signature === cached.signature && safeTurn.turn >= cached.latestTurn &&
-            cached.writes < 24 && cached.count < EPISODE_RETENTION_TURNS &&
+          if (
+            cached &&
+            currentFile?.signature === cached.signature &&
+            safeTurn.turn >= cached.latestTurn &&
+            cached.writes < 24 &&
+            cached.count < EPISODE_RETENTION_TURNS &&
             cached.oldestTime >= Date.now() - EPISODE_RETENTION_DAYS * 86_400_000 &&
-            currentFile.bytes + Buffer.byteLength(line, "utf8") <= EPISODE_STORE_MAX_BYTES) {
+            currentFile.bytes + Buffer.byteLength(line, "utf8") <= EPISODE_STORE_MAX_BYTES
+          ) {
             // Append bounded revisions and deduplicate on read. External edits,
             // periodic retention and capacity boundaries use the atomic rewrite below.
             yield* fs.writeFileString(target, line, { flag: "a" }).pipe(Effect.orDie)
             const written = yield* fileSignature(target)
-            if (written) recordMetadata.set(target, { ...cached, signature: written.signature, latestTurn: safeTurn.turn,
-              count: cached.count + (safeTurn.turn > cached.latestTurn ? 1 : 0), writes: cached.writes + 1 })
+            if (written)
+              recordMetadata.set(target, {
+                ...cached,
+                signature: written.signature,
+                latestTurn: safeTurn.turn,
+                count: cached.count + (safeTurn.turn > cached.latestTurn ? 1 : 0),
+                writes: cached.writes + 1,
+              })
             return
           }
           const current = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
@@ -405,7 +419,13 @@ export const layer = Layer.effect(
           const written = yield* fileSignature(target)
           if (written) {
             recordMetadata.delete(target)
-            recordMetadata.set(target, { signature: written.signature, latestTurn: newestTurn, count: lines.length, oldestTime, writes: 0 })
+            recordMetadata.set(target, {
+              signature: written.signature,
+              latestTurn: newestTurn,
+              count: lines.length,
+              oldestTime,
+              writes: 0,
+            })
             if (recordMetadata.size > 64) recordMetadata.delete(recordMetadata.keys().next().value!)
           }
         }),

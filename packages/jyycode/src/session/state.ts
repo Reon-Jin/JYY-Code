@@ -111,7 +111,10 @@ export function formatSessionState(
   if (state.tailStartID) {
     lines.push("", `compacted before: ${state.tailStartID}`)
   }
-  return untrustedMemoryBlock("session-state", sanitizeForPersistence(lines.join("\n")).text.slice(0, SESSION_STATE_MAX_CHARS))
+  return untrustedMemoryBlock(
+    "session-state",
+    sanitizeForPersistence(lines.join("\n")).text.slice(0, SESSION_STATE_MAX_CHARS),
+  )
 }
 
 export const SessionState = {
