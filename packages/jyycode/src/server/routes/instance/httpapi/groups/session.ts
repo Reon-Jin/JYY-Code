@@ -231,6 +231,7 @@ export const SessionPaths = {
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
   message: `${root}/:sessionID/message/:messageID`,
+  attachment: `${root}/:sessionID/message/:messageID/part/:partID/attachment`,
   create: root,
   remove: `${root}/:sessionID`,
   update: `${root}/:sessionID`,
@@ -359,6 +360,19 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.messages",
             summary: "Get session messages",
             description: "Retrieve all messages in a session, including user prompts and AI responses.",
+          }),
+        ),
+        HttpApiEndpoint.get("attachment", SessionPaths.attachment, {
+          params: { sessionID: SessionID, messageID: MessageID, partID: PartID },
+          query: WorkspaceRoutingQuery,
+          success: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.attachment",
+            summary: "Read a message image attachment",
+            description:
+              "Serve the persisted image for this exact session, message and part without exposing arbitrary blob or file paths.",
           }),
         ),
         HttpApiEndpoint.get("message", SessionPaths.message, {

@@ -728,21 +728,28 @@ export function clonePlan(plan: PlanFile): PlanFile {
 export function normalizePlanFile(value: unknown): unknown {
   if (!isRecord(value)) return value
   const needsMigration =
-    Array.isArray(value.steps) &&
-    value.steps.some(
-      (step) =>
-        isRecord(step) &&
-        Array.isArray(step.tasks) &&
-        step.tasks.some(
-          (task) =>
-            isRecord(task) &&
-            (task.mode === undefined ||
-              task.timeout_ms !== undefined ||
-              (isRecord(task.merge) && task.merge.cleanup_record === undefined)),
-        ),
-    )
+    value.status === "completed" ||
+    (Array.isArray(value.steps) &&
+      value.steps.some(
+        (step) =>
+          isRecord(step) &&
+          Array.isArray(step.tasks) &&
+          step.tasks.some(
+            (task) =>
+              isRecord(task) &&
+              (task.mode === undefined ||
+                task.timeout_ms !== undefined ||
+                (isRecord(task.merge) && task.merge.cleanup_record === undefined)),
+          ),
+      ))
   if (!needsMigration) return value
   const normalized = structuredClone(value) as Record<string, unknown>
+  // Earlier writers used "completed" and sometimes retained the last active
+  // step. Normalize that exact legacy state without hiding unrelated corruption.
+  if (normalized.status === "completed") {
+    normalized.status = "done"
+    normalized.current_step = null
+  }
   if (Array.isArray(normalized.steps)) {
     normalized.steps = normalized.steps.map((step) => {
       if (!isRecord(step) || !Array.isArray(step.tasks)) return step

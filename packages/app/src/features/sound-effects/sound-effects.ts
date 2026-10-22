@@ -1,5 +1,12 @@
 import type { DesktopBridge } from "../../platform/types"
-import { isSoundEffectName, playSound, resetSoundEngineForTests, type SoundEffectName } from "./sound-engine"
+import {
+  isSoundEffectName,
+  playSound,
+  resetSoundEngineForTests,
+  setSoundEngineEnabled,
+  unlockSoundEngine,
+  type SoundEffectName,
+} from "./sound-engine"
 
 export type { SoundEffectName } from "./sound-engine"
 
@@ -18,6 +25,7 @@ let lastTypingAt = Number.NEGATIVE_INFINITY
 
 export function publishSoundEffectsEnabled(next: boolean) {
   enabled = next
+  setSoundEngineEnabled(next)
 }
 
 export function publishSoundEffectEvent(event: SoundEffectEvent) {
@@ -115,12 +123,14 @@ export function soundEffectForTarget(target: EventTarget | null): SoundEffectNam
 }
 
 function onPointerDown(event: PointerEvent) {
+  if (enabled) unlockSoundEngine()
   if (event.pointerType === "mouse" && event.button !== 0) return
   const sound = soundEffectForTarget(event.target)
   if (sound) playSoundEffect(sound)
 }
 
 function onKeyDown(event: KeyboardEvent) {
+  if (enabled) unlockSoundEngine()
   if (event.key !== "Enter" && event.key !== " ") return
   const target = event.target
   if (!(target instanceof Element)) return
@@ -149,6 +159,7 @@ export function createSoundEffectsController(input: { bridge: DesktopBridge }) {
   return {
     dispose() {
       disposed = true
+      publishSoundEffectsEnabled(false)
       eventSubscribers.delete(onEvent)
       document.removeEventListener("pointerdown", onPointerDown, true)
       document.removeEventListener("keydown", onKeyDown, true)

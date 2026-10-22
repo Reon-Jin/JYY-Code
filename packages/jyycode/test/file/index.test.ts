@@ -427,6 +427,34 @@ describe("file/index Filesystem patterns", () => {
       }),
     )
 
+    for (const binary of [false, true]) {
+      it.instance(`rejects a concurrent ${binary ? "PDF" : "text"} write with the same revision`, () =>
+        Effect.gen(function* () {
+          const test = yield* TestInstance
+          const filename = binary ? "concurrent.pdf" : "concurrent.txt"
+          yield* Effect.promise(() => fs.writeFile(path.join(test.directory, filename), "before"))
+          const current = yield* read(filename)
+          const results = yield* Effect.all(
+            ["first", "second"].map((content) =>
+              write({
+                path: filename,
+                content: binary ? Buffer.from(content).toString("base64") : content,
+                ...(binary ? { encoding: "base64" as const } : {}),
+                revision: current.revision,
+              }).pipe(Effect.exit),
+            ),
+            { concurrency: "unbounded" },
+          )
+          expect(results.filter(Exit.isSuccess)).toHaveLength(1)
+          const failure = results.find(Exit.isFailure)
+          expect(failure && Cause.squash(failure.cause)).toBeInstanceOf(File.RevisionConflictError)
+          expect(["first", "second"]).toContain(
+            yield* Effect.promise(() => fs.readFile(path.join(test.directory, filename), "utf8")),
+          )
+        }),
+      )
+    }
+
     it.instance("writes UTF-8 text atomically when the revision matches", () =>
       Effect.gen(function* () {
         const test = yield* TestInstance

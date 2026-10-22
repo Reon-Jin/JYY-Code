@@ -21,6 +21,29 @@ function sleep(ms: number) {
 }
 
 describe("FileWriteLock", () => {
+  test("serializes a real path and an in-workspace junction alias for a new nested file", async () => {
+    const locks = await createLock()
+    const root = tempDirectories.at(-1)!
+    const real = path.join(root, "real")
+    const alias = path.join(root, "alias")
+    await fs.mkdir(real)
+    await fs.symlink(real, alias, process.platform === "win32" ? "junction" : "dir")
+    const file = path.join(real, "new", "file.txt")
+    const linked = path.join(alias, "new", "file.txt")
+    expect(lockPathFor(file, root)).toBe(lockPathFor(linked, root))
+    const first = await locks.acquire(file, { holder: "original" })
+    let entered = false
+    const second = locks.acquire(linked, { holder: "alias" }).then((handle) => {
+      entered = true
+      return handle
+    })
+    await sleep(20)
+    expect(entered).toBe(false)
+    first.release()
+    const handle = await second
+    expect(entered).toBe(true)
+    handle.release()
+  })
   test("waits for another holder of the same path", async () => {
     const locks = await createLock()
     const file = path.join(tempDirectories.at(-1)!, "file.txt")

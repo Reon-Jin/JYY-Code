@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest"
-import { renderMarkdown } from "./markdown"
+import { clearMarkdownCache, renderMarkdown, renderMarkdownBlocks } from "./markdown"
 
 describe("renderMarkdown", () => {
+  it.each(["complete", "streaming"] as const)(
+    "keeps block rendering equivalent to full rendering in %s mode",
+    (mode) => {
+      const source =
+        "# Title\n\nFirst **bold** paragraph.\n\n- one\n- two\n\n> quote\n\n```ts\nconst x = 1\n```\n\n[link][ref]\n\n[ref]: https://example.com\n\nInline $x^2$\n\n$$\ny = x + 1\n$$\n"
+      clearMarkdownCache()
+      expect(renderMarkdownBlocks(source, mode).join("")).toBe(renderMarkdown(source, mode))
+      expect(renderMarkdownBlocks(source, mode).join("")).toBe(renderMarkdown(source, mode))
+    },
+  )
+
+  it("updates cached blocks when a reference definition arrives later", () => {
+    const source = "[documentation][ref]\n\nTail"
+    const before = renderMarkdownBlocks(source, "streaming").join("")
+    const after = renderMarkdownBlocks(source + "\n\n[ref]: https://example.com\n", "streaming").join("")
+    expect(before).not.toContain("data-external-href")
+    expect(after).toContain('data-external-href="https://example.com"')
+  })
   it("removes executable markup and dangerous containers", () => {
     const html = renderMarkdown(`
 <script>alert(1)</script>

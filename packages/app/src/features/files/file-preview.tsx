@@ -332,6 +332,8 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
   const [translationError, setTranslationError] = createSignal<string>()
   const [translating, setTranslating] = createSignal(false)
   const [documentVersion, setDocumentVersion] = createSignal(0)
+  const [savePending, setSavePending] = createSignal(false)
+  const [localSaveError, setLocalSaveError] = createSignal<string>()
   let documentProxy: PDFDocumentProxy | undefined
   let loadingTask: PDFDocumentLoadingTask | undefined
   let loadGeneration = 0
@@ -393,18 +395,26 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
 
   const save = async () => {
     const data = basePdfSource ?? decodeBase64Content(encodedContent())
-    if (!data?.byteLength || !dirty() || props.saving || !props.onSave) return
-    const flattened = await flattenPdfAnnotations(data, annotations())
-    const content = base64FromBytes(flattened)
-    savedPdfContent = content
+    if (!data?.byteLength || !dirty() || props.saving || savePending() || !props.onSave) return
+    const submittedAnnotations = structuredClone(annotations())
+    const version = documentVersion()
+    setSavePending(true)
+    setLocalSaveError(undefined)
     try {
+      const flattened = await flattenPdfAnnotations(data, submittedAnnotations)
+      if (version !== documentVersion()) return
+      const content = base64FromBytes(flattened)
+      savedPdfContent = content
       await props.onSave({ content, encoding: "base64", revision: props.revision })
+      if (version !== documentVersion()) return
+      setSavedAnnotations(submittedAnnotations)
     } catch (cause) {
+      if (version !== documentVersion()) return
       savedPdfContent = undefined
-      throw cause
+      setLocalSaveError(errorText(cause))
+    } finally {
+      setSavePending(false)
     }
-    setSavedAnnotations([...annotations()])
-    setDraftAnnotation(undefined)
   }
 
   const cancelPendingTranslation = () => {
@@ -1110,9 +1120,14 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
         >
           <Columns2 aria-hidden="true" />
         </Button>
-        <Button size="small" variant="secondary" disabled={!dirty() || props.saving} onClick={() => void save()}>
+        <Button
+          size="small"
+          variant="secondary"
+          disabled={!dirty() || props.saving || savePending()}
+          onClick={() => void save()}
+        >
           <Save aria-hidden="true" />
-          {props.saving ? tr("files.saving") : tr("files.save")}
+          {props.saving || savePending() ? tr("files.saving") : tr("files.save")}
         </Button>
       </div>
       <Show when={state() === "loading"}>
@@ -1125,9 +1140,9 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
           <InlineError message={message() ?? tr("files.render-failed")} />
         </div>
       </Show>
-      <Show when={props.error}>
+      <Show when={props.error || localSaveError()}>
         <div class="file-preview__pdf-error">
-          <InlineError message={props.error!} />
+          <InlineError message={props.error ?? localSaveError()!} />
         </div>
       </Show>
       <div class="file-preview__pdf-workspace">
@@ -1510,23 +1525,33 @@ export function FilePreview(props: FilePreviewProps) {
   })
 
   const save = async (input: FileSaveInput) => {
+    const path = props.path
+    const reset = resetToken()
+    const previousDraft = draft()
+    const previousEncoding = draftEncoding()
+    const isCurrent = () => props.path === path && resetToken() === reset
     setSaving(true)
     setSaveError(undefined)
     try {
       const result = await api().write({
-        path: props.path,
+        path,
         content: input.content,
         encoding: input.encoding,
         revision: input.revision,
       })
-      setDraft(input.content)
-      setDraftEncoding(input.encoding)
+      if (!isCurrent()) return
+      if (draft() === previousDraft && draftEncoding() === previousEncoding) {
+        setDraft(input.content)
+        setDraftEncoding(input.encoding)
+      }
       setDraftRevision(result.revision)
       setObservedRevision(result.revision)
       setConflict(false)
     } catch (cause) {
-      setSaveError(errorText(cause))
-      if (isConflict(cause)) setConflict(true)
+      if (isCurrent()) {
+        setSaveError(errorText(cause))
+        if (isConflict(cause)) setConflict(true)
+      }
       throw cause
     } finally {
       setSaving(false)

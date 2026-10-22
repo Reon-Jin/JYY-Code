@@ -33,6 +33,7 @@ import { planFilePath, readPlanFileSync } from "@/plan/schema"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { ForkBudgetError } from "@/session/fork-budget"
 import { NamedError } from "@jyycode-ai/core/util/error"
+import { BlobStore, DEFAULT_MAX_BLOB_BYTES } from "@/storage/blob"
 import { Cause, Effect, Exit, Option, Schema, Scope } from "effect"
 import * as Stream from "effect/Stream"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
@@ -124,6 +125,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const blackboard = yield* Blackboard.Service
     const bus = yield* Bus.Service
     const scope = yield* Scope.Scope
+    const attachmentBlobs = new BlobStore()
 
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
       return yield* session.list({
@@ -157,7 +159,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const inSessionRuntime = <A, E, R>(effect: Effect.Effect<A, E, R>, ctx: { params: { sessionID: SessionID } }) =>
       Effect.gen(function* () {
         const directory = yield* runState.directory(ctx.params.sessionID)
-        return yield* (directory ? instanceStore.provide({ directory }, effect) : effect)
+        return yield* directory ? instanceStore.provide({ directory }, effect) : effect
       })
 
     // Push a plan.updated event onto the bus so desktop clients refetch the
@@ -271,6 +273,32 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         shouldCompact:
           cfg.compaction?.auto !== false && model.value.limit.context !== 0 && estimate.totalTokens >= thresholdTokens,
       }
+    })
+
+    const attachment = Effect.fn("SessionHttpApi.attachment")(function* (ctx: {
+      params: { sessionID: SessionID; messageID: MessageID; partID: PartID }
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      const part = yield* session.getPart(ctx.params)
+      if (!part || part.type !== "file" || !part.mime.startsWith("image/"))
+        return yield* ApiError.notFound("Image attachment not found")
+      const bytes = yield* Effect.tryPromise({
+        try: async () => {
+          const descriptor = await attachmentBlobs.describeURL(part.url, part.mime)
+          if (descriptor.size > DEFAULT_MAX_BLOB_BYTES) throw new Error("Image attachment is too large")
+          return attachmentBlobs.readURL(part.url)
+        },
+        catch: () => ApiError.notFound("Image attachment is unavailable"),
+      })
+      return HttpServerResponse.uint8Array(bytes, {
+        headers: {
+          "content-type": part.mime,
+          // Part IDs are stable even when their file URL is updated.
+          "cache-control": "private, no-cache",
+          "x-content-type-options": "nosniff",
+          "content-security-policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+        },
+      })
     })
 
     const plan = Effect.fn("SessionHttpApi.plan")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -804,6 +832,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("children", children)
       .handle("context", context)
       .handle("plan", plan)
+      .handle("attachment", attachment)
       .handle("blackboard", blackboardSnapshot)
       .handle("diff", diff)
       .handle("messages", messages)

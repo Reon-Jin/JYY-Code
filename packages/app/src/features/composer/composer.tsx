@@ -232,7 +232,7 @@ export function Composer(props: ComposerProps) {
   }
 
   async function submit() {
-    if (props.disabled) return
+    if (props.disabled || controller.sending()) return
     const sendingContent = Boolean(controller.draft().trim() || attachments().length > 0)
     // Minimal child composers have no queue UI, so steering always sends directly.
     if (!props.minimal && (active() || queuePhase() !== "ready" || queue.items().length > 0)) {
@@ -250,7 +250,7 @@ export function Composer(props: ComposerProps) {
         if (sendingContent) playSoundEffect("send")
       }
       refreshConversationIfMissing(sentAt)
-      setAttachments([])
+      setAttachments((current) => current.filter((attachment) => !files.includes(attachment)))
     } catch {
       playSoundEffect("error")
     }

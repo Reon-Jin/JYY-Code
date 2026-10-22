@@ -1,10 +1,55 @@
-import type { Part } from "@jyycode-ai/sdk/v2/client"
+import type { FilePart, Part } from "@jyycode-ai/sdk/v2/client"
 import { File as FileIcon } from "lucide-solid"
-import { Match, Switch } from "solid-js"
+import { createEffect, createSignal, Match, Show, Switch } from "solid-js"
+import { Dialog } from "../../components/ui/dialog"
+import { useOptionalData } from "../../data/context"
+import { tr } from "../../i18n/i18n-context"
 import { ReasoningPartView } from "./reasoning-part"
 import { presentMessageText } from "./message-presentation"
 import { TextPartView } from "./text-part"
 import { ToolCallCard } from "./tool-call-card"
+
+export function ImageAttachment(props: { part: FilePart }) {
+  const data = useOptionalData()
+  const [expanded, setExpanded] = createSignal(false)
+  const [failed, setFailed] = createSignal(false)
+  const source = () =>
+    props.part.url.startsWith("data:image/") || props.part.url.startsWith("blob:http")
+      ? props.part.url
+      : data?.attachmentUrl(props.part)
+  const label = () => props.part.filename ?? props.part.mime
+  createEffect(() => {
+    source()
+    setFailed(false)
+    setExpanded(false)
+  })
+  return (
+    <figure class="conversation-attachment" data-kind="image">
+      <Show
+        when={source() && !failed()}
+        fallback={
+          <span class="conversation-attachment__error" role="status">
+            {tr("conversation.image-unavailable")}
+          </span>
+        }
+      >
+        <button
+          class="conversation-attachment__image"
+          type="button"
+          aria-label={tr("conversation.view-image", { name: label() })}
+          onClick={() => setExpanded(true)}
+        >
+          <img src={source()} alt={label()} loading="lazy" decoding="async" onError={() => setFailed(true)} />
+        </button>
+      </Show>
+      <Show when={expanded()}>
+        <Dialog open title={label()} showClose class="conversation-image-dialog" onClose={() => setExpanded(false)}>
+          <img src={source()} alt={label()} decoding="async" />
+        </Dialog>
+      </Show>
+    </figure>
+  )
+}
 
 export function MessagePartView(props: { part: Part; messageRole?: string; messageAgent?: string }) {
   return (
@@ -45,14 +90,17 @@ export function MessagePartView(props: { part: Part; messageRole?: string; messa
       </Match>
       <Match when={props.part.type === "file" ? props.part : undefined}>
         {(part) => (
-          <figure class="conversation-attachment" data-kind={part().mime.startsWith("image/") ? "image" : "file"}>
-            {part().mime.startsWith("image/") ? (
-              <img src={part().url} alt={part().filename ?? part().mime} loading="lazy" />
-            ) : (
-              <FileIcon aria-hidden="true" />
-            )}
-            <figcaption title={part().filename ?? part().mime}>{part().filename ?? part().mime}</figcaption>
-          </figure>
+          <Show
+            when={part().mime.startsWith("image/")}
+            fallback={
+              <figure class="conversation-attachment" data-kind="file">
+                <FileIcon aria-hidden="true" />
+                <figcaption title={part().filename ?? part().mime}>{part().filename ?? part().mime}</figcaption>
+              </figure>
+            }
+          >
+            <ImageAttachment part={part()} />
+          </Show>
         )}
       </Match>
     </Switch>

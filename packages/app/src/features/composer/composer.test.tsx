@@ -261,6 +261,25 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "发送" })).not.toHaveTextContent("发送")
   })
 
+  it("preserves attachments and text added while a message acknowledgement is pending", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer()
+    const pending = deferred()
+    client.session.promptAsync.mockImplementationOnce(() => pending.promise.then(() => ({data:undefined})))
+    await user.upload(screen.getByLabelText("选择文件"), new File(["first"], "first.txt", {type:"text/plain"}))
+    await user.type(screen.getByRole("textbox", {name:"消息"}), "first")
+    await user.click(screen.getByRole("button", {name:"发送"}))
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
+    await user.upload(screen.getByLabelText("选择文件"), new File(["second"], "second.txt", {type:"text/plain"}))
+    fireEvent.input(screen.getByRole("textbox", {name:"消息"}), {target:{value:"next message"}})
+    pending.resolve()
+    await waitFor(() => expect(screen.getByRole("list", {name:"附件"})).not.toHaveTextContent("first.txt"))
+    expect(screen.getByRole("list", {name:"附件"})).toHaveTextContent("second.txt")
+    expect(screen.getByRole("textbox", {name:"消息"})).toHaveValue("next message")
+    // The controller intentionally persists drafts across unmounts.
+    fireEvent.input(screen.getByRole("textbox", {name:"消息"}), {target:{value:""}})
+  })
+
   it("adds files from the attachment picker and sends them with the message", async () => {
     const user = userEvent.setup()
     const client = renderComposer()

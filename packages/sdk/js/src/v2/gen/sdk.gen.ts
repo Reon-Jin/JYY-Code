@@ -221,6 +221,8 @@ import type {
   QuestionReplyResponses,
   SessionAbortErrors,
   SessionAbortResponses,
+  SessionAttachmentErrors,
+  SessionAttachmentResponses,
   SessionBlackboardErrors,
   SessionBlackboardPostErrors,
   SessionBlackboardPostResponses,
@@ -5216,6 +5218,42 @@ export class Session2 extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Read a message image attachment
+   *
+   * Serve the persisted image for this exact session, message and part without exposing arbitrary blob or file paths.
+   */
+  public attachment<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      messageID: string
+      partID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "messageID" },
+            { in: "path", key: "partID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionAttachmentResponses, SessionAttachmentErrors, ThrowOnError>({
+      url: "/session/{sessionID}/message/{messageID}/part/{partID}/attachment",
+      ...options,
+      ...params,
     })
   }
 

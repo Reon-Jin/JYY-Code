@@ -71,9 +71,11 @@ export function createComposerController(input: ComposerControllerInput) {
   let stopInFlight: Promise<void> | undefined
   let terminateInFlight: Promise<void> | undefined
   let disposed = false
+  let draftVersion = 0
 
   function setDraft(value: string) {
     if (disposed) return value
+    if (draft() !== value) draftVersion += 1
     setDraftSignal(value)
     if (value) draftStore.set(draftKey, value)
     else draftStore.delete(draftKey)
@@ -92,7 +94,9 @@ export function createComposerController(input: ComposerControllerInput) {
   ): Promise<void> {
     if (disposed) return Promise.resolve()
     if (inFlight) return inFlight
-    setDraft(text)
+    if (!draft()) setDraft(text)
+    const ownsDraft = draft() === text
+    const submittedVersion = draftVersion
     if (!text.trim() && attachments.length === 0) return Promise.resolve()
 
     setFailure(undefined)
@@ -130,13 +134,12 @@ export function createComposerController(input: ComposerControllerInput) {
           )
         }
         if (!disposed) {
-          setDraft("")
+          if (ownsDraft && draftVersion === submittedVersion) setDraft("")
           setLastFailedDraft(undefined)
           lastFailedAttachments = []
         }
       } catch (cause) {
         if (!disposed) {
-          setDraft(text)
           setLastFailedDraft(text)
           lastFailedAttachments = attachments
           lastFailedMode = "prompt"
@@ -159,7 +162,9 @@ export function createComposerController(input: ComposerControllerInput) {
   ): Promise<void> {
     if (disposed) return Promise.resolve()
     if (inFlight) return inFlight
-    setDraft(text)
+    if (!draft()) setDraft(text)
+    const ownsDraft = draft() === text
+    const submittedVersion = draftVersion
     if (!text.trim() && attachments.length === 0) return Promise.resolve()
 
     setFailure(undefined)
@@ -186,13 +191,12 @@ export function createComposerController(input: ComposerControllerInput) {
           { throwOnError: true },
         )
         if (!disposed) {
-          setDraft("")
+          if (ownsDraft && draftVersion === submittedVersion) setDraft("")
           setLastFailedDraft(undefined)
           lastFailedAttachments = []
         }
       } catch (cause) {
         if (!disposed) {
-          setDraft(text)
           setLastFailedDraft(text)
           lastFailedAttachments = attachments
           lastFailedMode = "interrupt"
@@ -211,7 +215,6 @@ export function createComposerController(input: ComposerControllerInput) {
   function retry() {
     const text = lastFailedDraft()
     if (text === undefined) return Promise.resolve()
-    setDraft(text)
     return lastFailedMode === "interrupt"
       ? interruptAndSend(text, undefined, lastFailedAttachments)
       : send(text, undefined, lastFailedAttachments)

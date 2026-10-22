@@ -3,6 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { Global } from "@jyycode-ai/core/global"
+import { canonicalizeForContainment } from "@/util/filesystem"
 
 const DEFAULT_STALE_MS = 60_000
 const DEFAULT_RETRY_MS = 50
@@ -35,7 +36,7 @@ function errorCode(error: unknown) {
 }
 
 function normalizedPath(filePath: string) {
-  const resolved = path.resolve(filePath)
+  const resolved = canonicalizeForContainment(path.resolve(filePath))
   return process.platform === "win32" ? resolved.toLowerCase() : resolved
 }
 

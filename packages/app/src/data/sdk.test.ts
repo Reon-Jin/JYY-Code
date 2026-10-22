@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest"
-import { createFileMediaUrl, createFilePreviewUrl } from "./sdk"
+import { createAttachmentUrl, createFileMediaUrl, createFilePreviewUrl } from "./sdk"
+
+it("scopes attachment images to the selected workspace and authenticates native image requests", () => {
+  const url = new URL(
+    createAttachmentUrl({
+      bootstrap: { baseUrl: "http://desktop.test/", username: "jyycode", password: "secret" },
+      directory: "C:\\work",
+      workspaceID: "wrk_child",
+      sessionID: "ses_1",
+      messageID: "msg_1",
+      partID: "prt_1",
+    }),
+  )
+  expect(url.pathname).toBe("/session/ses_1/message/msg_1/part/prt_1/attachment")
+  expect(url.searchParams.get("workspace")).toBe("wrk_child")
+  expect(url.searchParams.get("auth_token")).toBe(btoa("jyycode:secret"))
+})
 
 describe("createFileMediaUrl", () => {
   it("builds an authenticated, scoped streaming URL", () => {

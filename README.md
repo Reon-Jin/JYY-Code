@@ -186,8 +186,6 @@ packages/plugin/     Plugin SDK and extension interfaces
 packages/sdk/        HTTP/OpenAPI client SDK
 packages/app/        Desktop web UI
 packages/desktop/    Tauri desktop shell and sidecar packaging
-packages/relay/      End-to-end-encrypted mobile relay
-packages/mobile-web/ Mobile web / PWA client
 .jyycode/            Project agents, skills, commands, themes and config
 ```
 

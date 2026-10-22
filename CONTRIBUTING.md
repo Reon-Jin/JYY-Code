@@ -58,8 +58,6 @@ packages/plugin/     Plugin SDK and extension interfaces
 packages/sdk/        HTTP/OpenAPI client SDK (js + openapi.json)
 packages/app/        Desktop web UI (SolidJS + Vite)
 packages/desktop/    Tauri desktop shell and sidecar packaging
-packages/relay/      End-to-end-encrypted mobile relay
-packages/mobile-web/ Mobile web / PWA client
 packages/process-guardian/ Rust process supervisor
 docs/architecture/   Architecture decisions and ownership contracts
 docs/operations/     Operational runbooks (storage, workspaces, ...)

@@ -90,6 +90,23 @@ afterEach(() => {
 })
 
 describe("BlackboardPanel", () => {
+  it("keeps completed-plan notes and replies readable after reopening and switching historical steps", async () => {
+    const user = userEvent.setup()
+    const backend = createFakeJyycode(directory)
+    const root = backend.addSession({ id: "ses_completed", title: "Completed plan" })
+    backend.setBlackboard(root.id, { ...board(root.id), currentStepID: "", selectedStepID: "step_2", readonly: true })
+    const first = renderPanel(backend, root.id)
+    expect(await screen.findByText("Blocked")).toBeVisible()
+    expect(screen.queryByRole("textbox", { name: "发送黑板消息…" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: /查看纸条详情/ }))
+    expect(await screen.findByText("I am checking it now.")).toBeVisible()
+    first.unmount()
+    renderPanel(backend, root.id)
+    const steps = await screen.findByRole("combobox", { name: "当前 Step" })
+    await user.selectOptions(steps, "step_1")
+    expect(await screen.findByText("Old step")).toBeVisible()
+    expect(screen.queryByRole("textbox", { name: "发送黑板消息…" })).not.toBeInTheDocument()
+  })
   it("renders a compact note, expands it on click to show details and replies, and posts a message", async () => {
     const user = userEvent.setup()
     const backend = createFakeJyycode(directory)

@@ -36,6 +36,35 @@ function setup(draftStore = new Map<string, string>(), requestDirectory?: string
 }
 
 describe("createComposerController", () => {
+  it.each(["send", "interruptAndSend"] as const)("preserves a newer draft while %s is acknowledged", async (method) => {
+    const { client, controller } = setup()
+    const pending = deferred()
+    const request = method === "send" ? client.session.promptAsync : client.session.interruptPrompt
+    request.mockImplementationOnce(() => pending.promise.then(() => ({ data: undefined })))
+    const sent = controller[method]("first")
+    await Promise.resolve()
+    controller.setDraft("new unsent draft")
+    pending.resolve()
+    await sent
+    expect(controller.draft()).toBe("new unsent draft")
+  })
+
+  it("preserves a newer draft on failure and while retrying an older message", async () => {
+    const { client, controller } = setup()
+    let fail!: (error: Error) => void
+    client.session.promptAsync.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject }))
+    const sent = controller.send("first")
+    const rejected = expect(sent).rejects.toThrow("offline")
+    await Promise.resolve()
+    controller.setDraft("new draft")
+    fail(new Error("offline"))
+    await rejected
+    expect(controller.draft()).toBe("new draft")
+    await controller.retry()
+    expect(controller.draft()).toBe("new draft")
+    expect(client.session.promptAsync).toHaveBeenLastCalledWith(expect.objectContaining({parts:[{type:"text",text:"first"}]}), {throwOnError:true})
+  })
+
   it.each(["low", "high", "max"])("sends the selected %s reasoning depth for normal messages", async (variant) => {
     const { client, controller } = setup()
     await controller.send("hello", { agent: "build", model: { ...model, variant } })

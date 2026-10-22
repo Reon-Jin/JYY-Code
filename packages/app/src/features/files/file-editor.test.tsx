@@ -7,6 +7,28 @@ import { FileEditor, languageExtension } from "./file-editor"
 afterEach(cleanup)
 
 describe("FileEditor", () => {
+  it("keeps edits made while a save is pending dirty and saves them on the next request", async () => {
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    const onSave = vi.fn().mockImplementationOnce(() => pending).mockResolvedValue(undefined)
+    const onDirtyChange = vi.fn()
+    const user = userEvent.setup()
+    render(() => <FileEditor path="race.txt" content="before" revision="rev" onSave={onSave} onDirtyChange={onDirtyChange} />)
+    const editor = screen.getByRole("textbox")
+    editor.focus()
+    await user.keyboard("{Control>}a{/Control}first")
+    fireEvent.click(screen.getByRole("button", { name: "保存文件" }))
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+    editor.focus()
+    await user.keyboard(" second")
+    finish()
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存文件" })).toBeEnabled())
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+    expect(editor).toHaveTextContent("first second")
+    fireEvent.click(screen.getByRole("button", { name: "保存文件" }))
+    await waitFor(() => expect(onSave).toHaveBeenLastCalledWith({ content: "first second", revision: "rev" }))
+  })
+
   it("loads language-aware editing, tracks dirty state, and saves with Ctrl+S", async () => {
     const user = userEvent.setup()
     const onSave = vi.fn(async () => undefined)

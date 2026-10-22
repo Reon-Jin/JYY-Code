@@ -3,6 +3,7 @@ import { PDFDocument } from "pdf-lib"
 import * as XLSX from "xlsx"
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
+import { createSignal } from "solid-js"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DataProvider } from "../../data/context"
 import { I18nProvider } from "../../i18n/i18n-context"
@@ -35,6 +36,82 @@ function textContent(): FileContent {
 }
 
 describe("FilePreview", () => {
+  it("retains edits made during a save and uses the new revision for the next save", async () => {
+    const user = userEvent.setup()
+    const backend = createFakeJyycode(directory)
+    let release!: () => void
+    let pendingWrite = false
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      if (request.method === "PUT" && new URL(request.url).pathname === "/file/content" && !pendingWrite) {
+        pendingWrite = true
+        await gate
+      }
+      return backend.fetch(request)
+    })
+    render(() => (
+      <DataProvider
+        bootstrap={{ baseUrl: "http://desktop.test", username: "jyycode", password: "secret" }}
+        directory={directory}
+        generation={0}
+      >
+        <FilePreview directory={directory} path="src/app.tsx" />
+      </DataProvider>
+    ))
+    const editor = await screen.findByRole("textbox")
+    editor.focus()
+    await user.keyboard("{Control>}a{/Control}")
+    await user.paste("submitted")
+    await user.click(screen.getByRole("button", { name: "保存文件" }))
+    editor.focus()
+    await user.keyboard("{Control>}a{/Control}")
+    await user.paste("new draft")
+    release()
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存文件" })).toBeEnabled())
+    expect(editor).toHaveTextContent("new draft")
+    expect(screen.getByLabelText("有未保存的更改。是否继续？")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "保存文件" }))
+    await waitFor(() => expect(backend.fileContents.get("src/app.tsx")?.content).toBe("new draft"))
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
+  it("ignores a late save response after switching to another file", async () => {
+    const user = userEvent.setup()
+    const backend = createFakeJyycode(directory)
+    backend.fileContents.set("other.ts", { type: "text", content: "other content", revision: "other-1" })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      if (request.method === "PUT" && new URL(request.url).pathname === "/file/content") await gate
+      return backend.fetch(request)
+    })
+    const [file, setFile] = createSignal("src/app.tsx")
+    render(() => (
+      <DataProvider
+        bootstrap={{ baseUrl: "http://desktop.test", username: "jyycode", password: "secret" }}
+        directory={directory}
+        generation={0}
+      >
+        <FilePreview directory={directory} path={file()} />
+      </DataProvider>
+    ))
+    const editor = await screen.findByRole("textbox")
+    editor.focus()
+    await user.keyboard("{Control>}a{/Control}")
+    await user.paste("old file edit")
+    await user.click(screen.getByRole("button", { name: "保存文件" }))
+    setFile("other.ts")
+    await waitFor(() => expect(screen.getByRole("textbox")).toHaveTextContent("other content"))
+    release()
+    await waitFor(() => expect(backend.fileContents.get("src/app.tsx")?.content).toBe("old file edit"))
+    expect(screen.getByRole("textbox")).toHaveTextContent("other content")
+  })
   it("loads scoped text content into the editor and exposes a return action", async () => {
     const backend = createFakeJyycode(directory)
     vi.spyOn(globalThis, "fetch").mockImplementation(backend.fetch)

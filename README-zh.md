@@ -186,8 +186,6 @@ packages/plugin/     Plugin SDK 与扩展接口
 packages/sdk/        HTTP / OpenAPI Client SDK
 packages/app/        Desktop Web UI
 packages/desktop/    Tauri Desktop Shell 与 Sidecar 打包
-packages/relay/      端到端加密 Mobile Relay
-packages/mobile-web/ Mobile Web / PWA Client
 .jyycode/            项目级 Agent、Skill、Command、Theme 与配置
 ```
 

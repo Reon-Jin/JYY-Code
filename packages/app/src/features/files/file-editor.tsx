@@ -133,6 +133,7 @@ export function FileEditor(props: FileEditorProps) {
   const [dirty, setDirty] = createSignal(Boolean(props.initialDirty))
   const [localError, setLocalError] = createSignal<string>()
   const [viewReady, setViewReady] = createSignal(false)
+  const [savePending, setSavePending] = createSignal(false)
   const language = new Compartment()
   const readOnly = new Compartment()
   const editable = new Compartment()
@@ -145,15 +146,23 @@ export function FileEditor(props: FileEditorProps) {
   }
 
   const save = async () => {
-    if (!view || props.readOnly || !props.onSave || props.saving || !dirty()) return
+    if (!view || props.readOnly || !props.onSave || props.saving || savePending() || !dirty()) return
+    const editor = view
+    const path = props.path
+    const resetToken = props.resetToken
+    setSavePending(true)
     setLocalError(undefined)
     try {
       const content = view.state.doc.toString()
       await props.onSave({ content, revision: props.revision })
+      if (view !== editor || props.path !== path || props.resetToken !== resetToken) return
       committedContent = content
-      reportDirty(false)
+      reportDirty(editor.state.doc.toString() !== content)
     } catch (cause) {
-      setLocalError(cause instanceof Error && cause.message ? cause.message : tr("files.unable-to-save"))
+      if (view === editor && props.path === path && props.resetToken === resetToken)
+        setLocalError(cause instanceof Error && cause.message ? cause.message : tr("files.unable-to-save"))
+    } finally {
+      setSavePending(false)
     }
   }
 
@@ -269,7 +278,7 @@ export function FileEditor(props: FileEditorProps) {
             class="file-editor__save"
             size="small"
             variant="secondary"
-            disabled={!dirty() || props.saving}
+            disabled={!dirty() || props.saving || savePending()}
             onClick={() => void save()}
           >
             <Show when={props.saving} fallback={<Save aria-hidden="true" />}>

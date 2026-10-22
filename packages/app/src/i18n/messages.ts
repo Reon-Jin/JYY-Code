@@ -1,4 +1,6 @@
 export const zhCN = {
+  "conversation.view-image": "查看图片 {name}",
+  "conversation.image-unavailable": "图片暂时无法加载",
   "files.title": "项目文件",
   "files.refresh": "刷新文件",
   "files.open": "打开文件 {name}",
@@ -946,6 +948,8 @@ export const zhCN = {
 export type MessageKey = keyof typeof zhCN
 
 export const enUS = {
+  "conversation.view-image": "View image {name}",
+  "conversation.image-unavailable": "Image is unavailable",
   "files.title": "Project files",
   "files.refresh": "Refresh files",
   "files.open": "Open file {name}",

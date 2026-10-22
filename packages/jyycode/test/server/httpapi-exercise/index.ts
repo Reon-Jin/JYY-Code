@@ -1333,6 +1333,33 @@ const scenarios: Scenario[] = [
       check(body.length === 0, "new session should have no messages")
     }),
   http.protected
+    .get("/session/{sessionID}/message/{messageID}/part/{partID}/attachment", "session.attachment")
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Image attachment" })
+        const message = yield* ctx.message(session.id)
+        const part = yield* ctx.part({
+          id: message.part.id,
+          sessionID: session.id,
+          messageID: message.info.id,
+          type: "file",
+          mime: "image/png",
+          filename: "image.png",
+          url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG3sAAAAASUVORK5CYII=",
+        })
+        return { session, message, part }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/message/{messageID}/part/{partID}/attachment", {
+        sessionID: ctx.state.session.id,
+        messageID: ctx.state.message.info.id,
+        partID: ctx.state.part.id,
+      }),
+      headers: ctx.headers(),
+    }))
+    .ok(200),
+  http.protected
     .get("/session/{sessionID}/message/{messageID}", "session.message")
     .seeded((ctx) =>
       Effect.gen(function* () {

@@ -2,11 +2,12 @@ import { expect, describe } from "bun:test"
 import { Cause, Effect, Exit } from "effect"
 import path from "path"
 import fs from "fs/promises"
+import { existsSync } from "node:fs"
 import { Filesystem } from "@/util/filesystem"
 import { File } from "../../src/file"
 import { InstanceState } from "../../src/effect/instance-state"
 import { containsPath } from "../../src/project/instance-context"
-import { TestInstance } from "../fixture/fixture"
+import { TestInstance, tmpdir } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(File.defaultLayer)
@@ -107,6 +108,30 @@ describe("File.list path traversal protection", () => {
 })
 
 describe("File.write path traversal protection", () => {
+  it.instance("rejects a missing directory below a junction outside the workspace", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const outside = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (fixture) => Effect.promise(() => fixture[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(() => fs.symlink(outside.path, path.join(test.directory, "escape"), "junction"))
+      yield* expectAccessDenied(write({ path: "escape/new-directory/file.txt", content: "unsafe" }))
+      expect(existsSync(path.join(outside.path, "new-directory"))).toBe(false)
+    }),
+  )
+
+  it.instance("creates nested files and follows links only within the workspace", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const target = path.join(test.directory, "target")
+      yield* Effect.promise(() => fs.mkdir(target))
+      yield* Effect.promise(() => fs.symlink(target, path.join(test.directory, "alias"), "junction"))
+      yield* write({ path: "alias/new-directory/file.txt", content: "safe" })
+      expect(yield* Effect.promise(() => fs.readFile(path.join(target, "new-directory/file.txt"), "utf8"))).toBe("safe")
+    }),
+  )
+
   it.instance("rejects relative traversal and absolute paths", () =>
     Effect.gen(function* () {
       yield* expectAccessDenied(write({ path: "../../../etc/passwd", content: "unsafe" }))

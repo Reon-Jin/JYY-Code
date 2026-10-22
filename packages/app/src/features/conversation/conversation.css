@@ -125,6 +125,33 @@
   object-fit: contain;
 }
 
+.conversation-attachment__image {
+  display: block;
+  max-width: 100%;
+  border: 0;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.conversation-attachment__error {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.conversation-image-dialog {
+  width: min(1100px, 92vw);
+}
+
+.conversation-image-dialog img {
+  display: block;
+  max-width: 100%;
+  max-height: 78vh;
+  margin: auto;
+  object-fit: contain;
+}
+
 .conversation-attachment[data-kind="file"] {
   display: flex;
   align-items: center;
@@ -155,10 +182,16 @@
   overflow-wrap: anywhere;
 }
 
-.conversation-markdown > :first-child {
+.conversation-markdown__block {
+  display: contents;
+}
+
+.conversation-markdown > :first-child,
+.conversation-markdown > .conversation-markdown__block:first-child > :first-child {
   margin-top: 0;
 }
-.conversation-markdown > :last-child {
+.conversation-markdown > :last-child,
+.conversation-markdown > .conversation-markdown__block:last-child > :last-child {
   margin-bottom: 0;
 }
 .conversation-markdown p {

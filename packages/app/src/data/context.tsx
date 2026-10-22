@@ -13,7 +13,7 @@ import {
 import type { DesktopBootstrap } from "../platform/types"
 import { EventBridge, type ConnectionState } from "./event-bridge"
 import { createDesktopQueryClient } from "./query-client"
-import { createDesktopClient, createFileMediaUrl, createFilePreviewUrl } from "./sdk"
+import { createAttachmentUrl, createDesktopClient, createFileMediaUrl, createFilePreviewUrl } from "./sdk"
 
 export type DataProviderInput = {
   bootstrap: DesktopBootstrap
@@ -26,6 +26,7 @@ export type DataContextValue = {
   client: () => JyycodeClient
   fileMediaUrl: (path: string, workspaceID?: string, directory?: string) => string
   filePreviewUrl: (path: string, workspaceID?: string, directory?: string) => string
+  attachmentUrl: (part: { sessionID: string; messageID: string; id: string }) => string
   queryClient: () => QueryClient
   directory: () => string
   generation: () => number
@@ -69,6 +70,15 @@ export function DataProvider(props: ParentProps<DataProviderInput>) {
       createFileMediaUrl({ bootstrap: props.bootstrap, directory: directory ?? props.directory, path, workspaceID }),
     filePreviewUrl: (path, workspaceID, directory) =>
       createFilePreviewUrl({ bootstrap: props.bootstrap, directory: directory ?? props.directory, path, workspaceID }),
+    attachmentUrl: (part) =>
+      createAttachmentUrl({
+        bootstrap: props.bootstrap,
+        directory: props.directory,
+        workspaceID: workspaceID(),
+        sessionID: part.sessionID,
+        messageID: part.messageID,
+        partID: part.id,
+      }),
     queryClient,
     directory: () => props.directory,
     generation: () => props.generation,
@@ -82,6 +92,10 @@ export function DataProvider(props: ParentProps<DataProviderInput>) {
       <QueryClientProvider client={queryClient()}>{props.children}</QueryClientProvider>
     </DataContext.Provider>
   )
+}
+
+export function useOptionalData() {
+  return useContext(DataContext)
 }
 
 export function useData() {

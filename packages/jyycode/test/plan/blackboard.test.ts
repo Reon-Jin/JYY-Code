@@ -422,10 +422,7 @@ it.instance("continues addressing an approved child until its Step completes", (
     })
     for (const task of retained.steps[0].tasks) task.status = "approved"
     yield* Effect.promise(() =>
-      fs.writeFile(
-        path.join(ctx.directory, ".jyycode", "plan", retainedRootID, "plan.json"),
-        JSON.stringify(retained),
-      ),
+      fs.writeFile(path.join(ctx.directory, ".jyycode", "plan", retainedRootID, "plan.json"), JSON.stringify(retained)),
     )
     expect(yield* board.recipientsForMessage(message)).toEqual([{ sessionID: retainedRootID, role: "main" }])
   }),
@@ -502,44 +499,46 @@ it.instance("stores candidate declarations as top-level messages and validates p
   }),
 )
 
-it.instance("keeps blackboard history readable after the plan completes", () =>
-  Effect.gen(function* () {
-    const ctx = yield* InstanceState.context
-    const doneRootSessionID = SessionID.make("ses_blackboard_done_root")
-    yield* setupSessions({
-      directory: ctx.directory,
-      projectID: ctx.project.id,
-      rootSessionID: doneRootSessionID,
-      childSessionIDs: [],
-      plan,
-    })
-    const board = yield* Blackboard.Service
-    const posted = yield* board.postUser({ rootSessionID: doneRootSessionID, message: "完成前的协作记录" })
+for (const status of ["done", "completed"]) {
+  it.instance(`keeps blackboard history readable after the plan completes with status ${status}`, () =>
+    Effect.gen(function* () {
+      const ctx = yield* InstanceState.context
+      const doneRootSessionID = SessionID.make(`ses_blackboard_${status}_root`)
+      yield* setupSessions({
+        directory: ctx.directory,
+        projectID: ctx.project.id,
+        rootSessionID: doneRootSessionID,
+        childSessionIDs: [],
+        plan,
+      })
+      const board = yield* Blackboard.Service
+      const posted = yield* board.postUser({ rootSessionID: doneRootSessionID, message: "完成前的协作记录" })
 
-    // Completing the plan clears current_step.
-    const completedPlan = structuredClone(plan) as any
-    completedPlan.status = "done"
-    completedPlan.current_step = null
-    completedPlan.steps[0]!.status = "done"
-    const completedPlanPath = path.join(ctx.directory, ".jyycode", "plan", doneRootSessionID, "plan.json")
-    yield* Effect.promise(() => fs.writeFile(completedPlanPath, JSON.stringify(completedPlan)))
+      // Completing the plan clears current_step.
+      const completedPlan = structuredClone(plan) as any
+      completedPlan.status = status
+      completedPlan.current_step = status === "completed" ? "s1" : null
+      completedPlan.steps[0]!.status = "done"
+      const completedPlanPath = path.join(ctx.directory, ".jyycode", "plan", doneRootSessionID, "plan.json")
+      yield* Effect.promise(() => fs.writeFile(completedPlanPath, JSON.stringify(completedPlan)))
 
-    const snapshot = yield* board.listUser({ rootSessionID: doneRootSessionID })
-    expect(snapshot.currentStepID).toBe("")
-    expect(snapshot.selectedStepID).toBe("s1")
-    expect(snapshot.readonly).toBe(true)
-    expect(snapshot.messages.map((item) => item.id)).toContain(posted.id)
+      const snapshot = yield* board.listUser({ rootSessionID: doneRootSessionID })
+      expect(snapshot.currentStepID).toBe("")
+      expect(snapshot.selectedStepID).toBe("s1")
+      expect(snapshot.readonly).toBe(true)
+      expect(snapshot.messages.map((item) => item.id)).toContain(posted.id)
 
-    const explicit = yield* board.listUser({ rootSessionID: doneRootSessionID, stepID: "s1" })
-    expect(explicit.selectedStepID).toBe("s1")
-    expect(explicit.messages.map((item) => item.id)).toContain(posted.id)
+      const explicit = yield* board.listUser({ rootSessionID: doneRootSessionID, stepID: "s1" })
+      expect(explicit.selectedStepID).toBe("s1")
+      expect(explicit.messages.map((item) => item.id)).toContain(posted.id)
 
-    // Posting is still rejected once no current step exists.
-    expect(
-      Exit.isFailure(yield* Effect.exit(board.postUser({ rootSessionID: doneRootSessionID, message: "late" }))),
-    ).toBe(true)
-  }),
-)
+      // Posting is still rejected once no current step exists.
+      expect(
+        Exit.isFailure(yield* Effect.exit(board.postUser({ rootSessionID: doneRootSessionID, message: "late" }))),
+      ).toBe(true)
+    }),
+  )
+}
 
 it.instance("keeps the blackboard readable but rejects user posts in single-agent mode", () =>
   Effect.gen(function* () {

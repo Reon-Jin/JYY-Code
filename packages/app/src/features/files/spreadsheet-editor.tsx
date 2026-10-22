@@ -1,6 +1,6 @@
 import type { CellObject, WorkBook, WorkSheet } from "xlsx"
 import { ChevronLeft, File as FileIcon, Save } from "lucide-solid"
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createSignal, For, Index, onCleanup, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
@@ -180,6 +180,8 @@ export function SpreadsheetEditor(props: SpreadsheetEditorProps) {
   let pendingKey: string | undefined
   let loadSequence = 0
   let lastDirty = false
+  let editVersion = 0
+  const [savePending, setSavePending] = createSignal(false)
   const [state, setState] = createSignal<"loading" | "ready" | "error">("loading")
   const [message, setMessage] = createSignal<string>()
   const [sheetNames, setSheetNames] = createSignal<string[]>([])
@@ -264,6 +266,7 @@ export function SpreadsheetEditor(props: SpreadsheetEditorProps) {
   const updateCell = (row: number, column: number, value: string) => {
     const sheet = activeWorksheet()
     if (!workbook || !library || !sheet || props.readOnly) return
+    editVersion += 1
     const address = library.utils.encode_cell({ r: row, c: column })
     sheet[address] = cellFromText(sheet[address], value)
     setRows((current) =>
@@ -276,16 +279,25 @@ export function SpreadsheetEditor(props: SpreadsheetEditorProps) {
   }
 
   const save = async () => {
-    if (!workbook || !library || props.readOnly || !props.onSave || props.saving || !dirty()) return
+    if (!workbook || !library || props.readOnly || !props.onSave || props.saving || savePending() || !dirty()) return
+    const version = editVersion
+    const sequence = loadSequence
+    const path = props.path
+    const resetToken = props.resetToken
+    setSavePending(true)
     setLocalError(undefined)
     try {
       const payload = serializeWorkbook(library, workbook, props.path)
       await props.onSave({ ...payload, revision: props.revision })
+      if (sequence !== loadSequence || path !== props.path || resetToken !== props.resetToken) return
       committedKey = sourceKey(props.path, payload.content, payload.encoding, props.resetToken)
-      pendingKey = undefined
-      reportDirty(false)
+      if (version === editVersion) pendingKey = undefined
+      reportDirty(version !== editVersion)
     } catch (cause) {
-      setLocalError(cause instanceof Error && cause.message ? cause.message : tr("files.spreadsheet-save-failed"))
+      if (sequence === loadSequence && path === props.path && resetToken === props.resetToken)
+        setLocalError(cause instanceof Error && cause.message ? cause.message : tr("files.spreadsheet-save-failed"))
+    } finally {
+      setSavePending(false)
     }
   }
 
@@ -316,7 +328,7 @@ export function SpreadsheetEditor(props: SpreadsheetEditorProps) {
             class="spreadsheet-editor__save"
             size="small"
             variant="secondary"
-            disabled={!dirty() || props.saving || state() !== "ready"}
+              disabled={!dirty() || props.saving || savePending() || state() !== "ready"}
             onClick={() => void save()}
           >
             <Show when={props.saving} fallback={<Save aria-hidden="true" />}>
@@ -381,34 +393,34 @@ export function SpreadsheetEditor(props: SpreadsheetEditorProps) {
             <thead>
               <tr>
                 <th class="spreadsheet-editor__corner" />
-                <For each={rows()[0] ?? []}>{(_, column) => <th scope="col">{columnLabel(column())}</th>}</For>
+                <Index each={rows()[0] ?? []}>{(_, column) => <th scope="col">{columnLabel(column)}</th>}</Index>
               </tr>
             </thead>
             <tbody>
-              <For each={rows()}>
+              <Index each={rows()}>
                 {(row, rowIndex) => (
                   <tr>
-                    <th scope="row">{rowIndex() + 1}</th>
-                    <For each={row}>
+                    <th scope="row">{rowIndex + 1}</th>
+                    <Index each={row()}>
                       {(value, columnIndex) => (
                         <td
                           data-selected={
-                            selected().row === rowIndex() && selected().column === columnIndex() ? "true" : "false"
+                            selected().row === rowIndex && selected().column === columnIndex ? "true" : "false"
                           }
                         >
                           <input
-                            aria-label={`${columnLabel(columnIndex())}${rowIndex() + 1}`}
-                            value={value}
+                            aria-label={`${columnLabel(columnIndex)}${rowIndex + 1}`}
+                            value={value()}
                             readOnly={props.readOnly}
-                            onFocus={() => setSelected({ row: rowIndex(), column: columnIndex() })}
-                            onInput={(event) => updateCell(rowIndex(), columnIndex(), event.currentTarget.value)}
+                            onFocus={() => setSelected({ row: rowIndex, column: columnIndex })}
+                            onInput={(event) => updateCell(rowIndex, columnIndex, event.currentTarget.value)}
                           />
                         </td>
                       )}
-                    </For>
+                    </Index>
                   </tr>
                 )}
-              </For>
+              </Index>
             </tbody>
           </table>
         </div>

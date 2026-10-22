@@ -217,6 +217,39 @@ afterEach(async () => {
 })
 
 describe("session HttpApi", () => {
+  it.instance("serves persisted image bytes only for the owning message part", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const session = yield* createSession()
+      const other = yield* createSession()
+      const { info, part: text } = yield* createTextMessage(session.id, "image")
+      const svc = yield* Session.Service
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG3sAAAAASUVORK5CYII=",
+        "base64",
+      )
+      const part = yield* svc.updatePart({
+        id: PartID.ascending(),
+        sessionID: session.id,
+        messageID: info.id,
+        type: "file",
+        mime: "image/png",
+        filename: "pasted.png",
+        url: `data:image/png;base64,${png.toString("base64")}`,
+      })
+      expect(part.url).toStartWith("blob:sha256:")
+      const headers = { "x-jyycode-directory": test.directory }
+      const route = (sessionID: string, partID = part.id) =>
+        pathFor(SessionPaths.attachment, { sessionID, messageID: info.id, partID })
+      const response = yield* request(route(session.id), { headers })
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toBe("image/png")
+      expect(Buffer.from(yield* Effect.promise(() => response.arrayBuffer()))).toEqual(png)
+      expect((yield* request(route(other.id), { headers })).status).toBe(404)
+      expect((yield* request(route(session.id, text.id), { headers })).status).toBe(404)
+    }),
+  )
+
   it.effect("maps busy sessions to public session busy errors", () =>
     Effect.gen(function* () {
       const sessionID = SessionID.descending()

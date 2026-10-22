@@ -46,3 +46,21 @@ export function createFilePreviewUrl(input: {
 }
 
 export type DesktopClient = ReturnType<typeof createDesktopClient>
+
+export function createAttachmentUrl(input: {
+  bootstrap: DesktopBootstrap
+  directory: string
+  sessionID: string
+  messageID: string
+  partID: string
+  workspaceID?: string
+}) {
+  const { sessionID, messageID, partID } = input
+  const url = new URL(
+    `${input.bootstrap.baseUrl.replace(/\/+$/, "")}/session/${encodeURIComponent(sessionID)}/message/${encodeURIComponent(messageID)}/part/${encodeURIComponent(partID)}/attachment`,
+  )
+  url.searchParams.set("directory", input.directory)
+  if (input.workspaceID) url.searchParams.set("workspace", input.workspaceID)
+  url.searchParams.set("auth_token", btoa(`${input.bootstrap.username}:${input.bootstrap.password}`))
+  return url.toString()
+}

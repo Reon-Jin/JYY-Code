@@ -9220,6 +9220,42 @@ export type SessionPromptResponses = {
 
 export type SessionPromptResponse = SessionPromptResponses[keyof SessionPromptResponses]
 
+export type SessionAttachmentData = {
+  body?: never
+  path: {
+    sessionID: string
+    messageID: string
+    partID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/message/{messageID}/part/{partID}/attachment"
+}
+
+export type SessionAttachmentErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionAttachmentError = SessionAttachmentErrors[keyof SessionAttachmentErrors]
+
+export type SessionAttachmentResponses = {
+  /**
+   * Success
+   */
+  200: Blob | File
+}
+
+export type SessionAttachmentResponse = SessionAttachmentResponses[keyof SessionAttachmentResponses]
+
 export type SessionDeleteMessageData = {
   body?: never
   path: {

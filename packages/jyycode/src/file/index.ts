@@ -17,6 +17,8 @@ import * as Log from "@jyycode-ai/core/util/log"
 import { Protected } from "./protected"
 import { Ripgrep } from "./ripgrep"
 import { FileWatcher } from "./watcher"
+import { fileWriteLock } from "./write-lock"
+import { canonicalizeForContainment } from "@/util/filesystem"
 import { NonNegativeInt, type DeepMutable } from "@jyycode-ai/core/schema"
 import { createHash, randomUUID } from "node:crypto"
 import { stat as statFile } from "node:fs/promises"
@@ -748,24 +750,7 @@ export const layer = Layer.effect(
       return { type: "text" as const, content, revision }
     })
 
-    const write: Interface["write"] = Effect.fn("File.write")(function* (input) {
-      const ctx = yield* InstanceState.context
-      const absoluteInput = path.isAbsolute(input.path) || /^[A-Za-z]:[\\/]/.test(input.path)
-      const full = path.resolve(ctx.directory, input.path)
-      const root = AppFileSystem.resolve(ctx.directory)
-      const parent = AppFileSystem.resolve(path.dirname(full))
-      const target = AppFileSystem.resolve(full)
-
-      if (
-        absoluteInput ||
-        !AppFileSystem.contains(root, full) ||
-        !AppFileSystem.contains(root, parent) ||
-        !AppFileSystem.contains(root, target) ||
-        path.relative(root, full) === ""
-      ) {
-        return yield* new UnsafePathError({ message: "Access denied: path escapes project directory" })
-      }
-
+    const writeContent = Effect.fn("File.writeContent")(function* (input: WriteInput, full: string) {
       const mimeType = AppFileSystem.mimeType(full)
       const extension = ext(input.path)
       const binaryDocument = input.encoding === "base64" && (spreadsheetBinary.has(extension) || extension === "pdf")
@@ -863,6 +848,44 @@ export const layer = Layer.effect(
         .rename(temporary, full)
         .pipe(Effect.orDie, Effect.ensuring(appFs.remove(temporary, { force: true }).pipe(Effect.ignore)))
       return { revision: yield* revisionFor(full, input.path, bytes) }
+    })
+
+    const write: Interface["write"] = Effect.fn("File.write")(function* (input) {
+      const ctx = yield* InstanceState.context
+      const resolveTarget = () =>
+        Effect.try({
+          try: () => {
+            const root = canonicalizeForContainment(ctx.directory)
+            const requested = path.resolve(root, input.path)
+            const target = canonicalizeForContainment(requested)
+            if (
+              path.isAbsolute(input.path) ||
+              /^[A-Za-z]:/.test(input.path) ||
+              !AppFileSystem.contains(root, requested) ||
+              !AppFileSystem.contains(root, target) ||
+              target === root
+            )
+              throw new Error("outside workspace")
+            return target
+          },
+          catch: () => new UnsafePathError({ message: "Access denied: path escapes project directory" }),
+        })
+      const target = yield* resolveTarget()
+      return yield* Effect.scoped(
+        Effect.gen(function* () {
+          yield* Effect.acquireRelease(
+            Effect.tryPromise((signal) => fileWriteLock.acquire(target, { holder: "file-api", signal })).pipe(
+              Effect.orDie,
+            ),
+            (lock) => Effect.sync(() => lock.release()),
+          )
+          // A link may have changed while waiting for the lock. Never write a
+          // different physical target from the one whose lock we acquired.
+          if ((yield* resolveTarget()) !== target)
+            return yield* new UnsafePathError({ message: "Access denied: path escapes project directory" })
+          return yield* writeContent(input, target)
+        }),
+      )
     })
 
     const list = Effect.fn("File.list")(function* (dir?: string) {

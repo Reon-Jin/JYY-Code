@@ -202,13 +202,9 @@ export function canonicalizeForContainment(input: string): string {
     }
   }
 
-  let canonicalParent: string
-  try {
-    canonicalParent = realpathSync.native(current)
-  } catch (error) {
-    if (isEnoent(error)) return resolved
-    throw error
-  }
+  // lstat found an existing ancestor. If it is a dangling link (or disappears
+  // during resolution), fail closed instead of treating its lexical path as safe.
+  const canonicalParent = realpathSync.native(current)
   return suffix.reduce((parent, item) => join(parent, item), canonicalParent)
 }
 

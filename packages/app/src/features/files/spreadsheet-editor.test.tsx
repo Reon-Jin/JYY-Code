@@ -7,6 +7,26 @@ import { SpreadsheetEditor, type SpreadsheetEditorSaveInput } from "./spreadshee
 afterEach(cleanup)
 
 describe("SpreadsheetEditor", () => {
+  it("keeps cells edited during a pending save dirty", async () => {
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    const onSave = vi.fn(() => pending)
+    const onDirtyChange = vi.fn()
+    const user = userEvent.setup()
+    render(() => <SpreadsheetEditor path="race.csv" content={"Name,Amount\nAlice,1"} revision="rev" onSave={onSave} onDirtyChange={onDirtyChange} />)
+    const cell = await screen.findByRole("textbox", {name:"B2"})
+    await user.clear(cell)
+    await user.type(cell, "2")
+    await user.click(screen.getByRole("button", {name:"保存文件"}))
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+    await user.clear(cell)
+    await user.type(cell, "3")
+    finish()
+    await waitFor(() => expect(screen.getByRole("button", {name:"保存文件"})).toBeEnabled())
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+    expect(cell).toHaveValue("3")
+  })
+
   it("renders and edits a CSV grid, then saves text with the current revision", async () => {
     const user = userEvent.setup()
     const onSave = vi.fn(async (_input: SpreadsheetEditorSaveInput) => undefined)

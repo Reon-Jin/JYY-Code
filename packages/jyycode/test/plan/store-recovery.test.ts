@@ -4,6 +4,7 @@ import path from "node:path"
 import { describe, expect, it, spyOn } from "bun:test"
 import type { PlanFile } from "../../src/plan/schema"
 import { PlanStore } from "../../src/plan/store"
+import { projectPlanSnapshot } from "../../src/plan/snapshot"
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "jyycode-plan-store-"))
@@ -67,6 +68,21 @@ async function update(store: PlanStore, planPath: string, revision: number) {
 }
 
 describe("PlanStore recovery", () => {
+  it("reads legacy completed plans as a completed snapshot without losing tasks or modifying the source", () => {
+    const value = fixture()
+    try {
+      const legacy = { ...plan(), status: "completed", current_step: "s1" }
+      fs.writeFileSync(value.planPath, JSON.stringify(legacy))
+      const stored = new PlanStore().read(value.planPath)
+      expect(stored?.status).toBe("done")
+      expect(stored?.current_step).toBeNull()
+      expect(projectPlanSnapshot(stored)).toMatchObject({ title: legacy.title, steps: [{ id: "s1" }] })
+      expect(JSON.parse(fs.readFileSync(value.planPath, "utf8")).status).toBe("completed")
+    } finally {
+      value.cleanup()
+    }
+  })
+
   it("keeps the target file present across a Windows-style replace fallback", async () => {
     const value = fixture()
     try {
