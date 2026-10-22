@@ -3,6 +3,16 @@ import type { Message, Part } from "@jyycode-ai/sdk/v2/client"
 import { presentConversationMessages, presentMessageText } from "./message-presentation"
 
 describe("presentMessageText", () => {
+  it("requires explicit skill metadata on a user message and preserves ordinary or assistant text", () => {
+    const part = { text: "# Skill instructions", metadata: { skill: { name: "drawing", arguments: "paint" } } }
+    expect(presentMessageText({ part, role: "user" })).toEqual({ kind: "skill", name: "drawing", arguments: "paint" })
+    expect(presentMessageText({ part, role: "assistant" })).toEqual({ kind: "text", text: part.text })
+    expect(presentMessageText({ part: { text: part.text }, role: "user" })).toEqual({ kind: "text", text: part.text })
+    expect(presentMessageText({ part: { ...part, metadata: { skill: { name: "drawing" } } }, role: "user" })).toEqual({
+      kind: "text",
+      text: part.text,
+    })
+  })
   it("hides synthetic orchestration prompts", () => {
     expect(
       presentMessageText({
@@ -124,7 +134,14 @@ describe("presentConversationMessages", () => {
       type: "tool",
       callID: id,
       tool: "computer",
-      state: { status: "completed", input: {}, output: "", title: "Computer", metadata: {}, time: { start: 1, end: 2 } },
+      state: {
+        status: "completed",
+        input: {},
+        output: "",
+        title: "Computer",
+        metadata: {},
+        time: { start: 1, end: 2 },
+      },
     })
     const firstAction = computer("part_computer_1", first.id)
     const lastAction = computer("part_computer_2", second.id)

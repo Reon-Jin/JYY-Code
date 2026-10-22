@@ -46,6 +46,79 @@ const message = (info: UserMessage | AssistantMessage, text: string): Conversati
 })
 
 describe("turn changes", () => {
+  it("keeps completed file rows, patches, media and focus mounted while the next turn streams", () => {
+    const changes = [...diffs.slice(0, 2), { file: "simple.png", additions: 0, deletions: 0, status: "added" as const }]
+    const nextUser = { ...user, id: "msg_next_user", time: { created: 4 }, summary: undefined }
+    const nextAssistant = { ...assistant, id: "msg_next_reply", parentID: nextUser.id, time: { created: 5 } }
+    const [messages, setMessages] = createSignal<ConversationMessage[]>([
+      message({ ...user, summary: { diffs: changes } }, "first"),
+      message(assistant, "done"),
+      message(nextUser, "next"),
+      message(nextAssistant, "stream"),
+    ])
+    render(() => (
+      <DataProvider
+        bootstrap={{ baseUrl: "http://desktop.test", username: "test", password: "secret" }}
+        directory="C:\\work"
+        generation={0}
+      >
+        <MessageTimeline messages={messages()} running />
+      </DataProvider>
+    ))
+    const card = screen.getByRole("region", { name: "本轮文件变更" })
+    const row = within(card).getByRole("button", { name: "src/file-0.ts, +1 -0" })
+    fireEvent.click(row)
+    const patch = within(card).getByLabelText("src/file-0.ts Diff")
+    const patchLine = within(patch).getByText("new value")
+    const image = within(card).getByRole("img")
+    const header = within(card).getByText("已更改 3 个文件")
+    row.focus()
+    for (let i = 0; i < 20; i++) {
+      setMessages([
+        message({ ...user, summary: { diffs: changes.map((change) => ({ ...change })) } }, "first"),
+        message({ ...assistant }, "done"),
+        message({ ...nextUser }, "next"),
+        message({ ...nextAssistant }, "stream".repeat(i + 2)),
+      ])
+      expect(screen.getByRole("region", { name: "本轮文件变更" })).toBe(card)
+      expect(within(card).getByRole("button", { name: "src/file-0.ts, +1 -0" })).toBe(row)
+      expect(within(card).getByText("已更改 3 个文件")).toBe(header)
+      expect(within(patch).getByText("new value")).toBe(patchLine)
+      expect(within(card).getByRole("img")).toBe(image)
+      expect(document.activeElement).toBe(row)
+      expect(row).toHaveAttribute("aria-expanded", "true")
+    }
+    fireEvent.click(within(card).getByRole("button", { name: "查看图片 simple.png" }))
+    const dialog = screen.getByRole("dialog", { name: "simple.png" })
+    for (let i = 0; i < 10; i++) {
+      setMessages([
+        message({ ...user, summary: { diffs: changes.map((change) => ({ ...change })) } }, "first"),
+        message({ ...assistant }, "done"),
+        message({ ...nextUser }, "next"),
+        message({ ...nextAssistant }, `more stream ${i}`),
+      ])
+      expect(screen.getByRole("dialog", { name: "simple.png" })).toBe(dialog)
+    }
+  })
+  it("omits the whole card when no files changed, including internal-only diffs", () => {
+    const { container, unmount } = render(() => <TurnChanges summary={{ messageID: user.id, changes: [] }} />)
+    expect(container.querySelector(".turn-changes")).toBeNull()
+    expect(screen.queryByText("本轮未更改文件")).not.toBeInTheDocument()
+    unmount()
+    for (const changes of [
+      [],
+      [{ file: ".jyycode/state.json", additions: 1, deletions: 0, status: "modified" as const }],
+    ]) {
+      const messages = [
+        message({ ...user, summary: { diffs: changes } }, "write an essay"),
+        message(assistant, "essay"),
+      ]
+      expect(turnChangeSummaries(messages, presentConversationMessages(messages), false).size).toBe(0)
+      const view = render(() => <MessageTimeline messages={messages} running={false} />)
+      expect(view.container.querySelector(".turn-changes")).toBeNull()
+      view.unmount()
+    }
+  })
   it("prioritizes video, then images, then the file list in a completed mixed-output turn", () => {
     const mixedDiffs: SnapshotFileDiff[] = [
       ...diffs.slice(0, 6),

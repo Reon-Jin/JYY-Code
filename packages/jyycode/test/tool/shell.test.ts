@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Cause, Effect, Exit, Layer } from "effect"
+import { Cause, Deferred, Effect, Exit, Layer } from "effect"
 import type * as Scope from "effect/Scope"
 import os from "os"
 import path from "path"
@@ -18,6 +18,7 @@ import { Plugin } from "../../src/plugin"
 import { testEffect } from "../lib/effect"
 import { Tool } from "@/tool/tool"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { BackgroundProcess } from "@/process/job"
 
 const shellLayer = Layer.mergeAll(
   CrossSpawnSpawner.defaultLayer,
@@ -27,6 +28,7 @@ const shellLayer = Layer.mergeAll(
   Config.defaultLayer,
   Agent.defaultLayer,
   RuntimeFlags.defaultLayer,
+  BackgroundProcess.defaultLayer,
 )
 const it = testEffect(shellLayer)
 type ShellTestServices =
@@ -39,6 +41,63 @@ const initShell = Effect.fn("ShellToolTest.init")(function* () {
 })
 
 const initBash = initShell
+
+describe("tool.shell background", () => {
+  it.instance(
+    "yields after 10 seconds, permits independent work and sends one completion notification",
+    () =>
+      Effect.gen(function* () {
+        const notified = yield* Deferred.make<string>()
+        const notifications: string[] = []
+        const updates: string[] = []
+        const command =
+          process.platform === "win32"
+            ? "Write-Output started; Start-Sleep -Milliseconds 11500; Write-Output finished; exit 7"
+            : "echo started; sleep 11.5; echo finished; exit 7"
+        const result = yield* run(
+          { command, description: "background completion fixture", timeout: 30_000 },
+          {
+            ...ctx,
+            metadata: (input) =>
+              Effect.sync(() => {
+                updates.push(input.metadata?.output ?? "")
+              }),
+            extra: {
+              promptOps: {
+                wake: (input: { text: string }) =>
+                  Effect.gen(function* () {
+                    notifications.push(input.text)
+                    yield* Deferred.succeed(notified, input.text)
+                    return {}
+                  }),
+              },
+            },
+          },
+        )
+        const proc = yield* (yield* BackgroundProcess.Service).get(result.metadata.process_id)
+        const elapsed = Date.now() - proc!.started_at
+        expect(elapsed).toBeGreaterThanOrEqual(9_900)
+        expect(elapsed).toBeLessThan(11_500)
+        expect(result.metadata.background).toBe(true)
+        expect(result.metadata.status).toBe("running")
+        expect(result.output).toContain("started")
+        expect(result.output).toContain("<process_id>proc_")
+        expect(notifications).toHaveLength(0)
+        const frozenUpdates = updates.length
+        const independent = yield* run({ command: "echo independent", description: "independent command" })
+        expect(independent.output).toContain("independent")
+        expect(independent.metadata.background).toBe(false)
+        const notification = yield* Deferred.await(notified).pipe(Effect.timeout("15 seconds"))
+        expect(notification).toContain("exit: 7")
+        expect(notification).toContain("finished")
+        expect(notification).toContain(String(result.metadata.process_id))
+        expect(notifications).toHaveLength(1)
+        expect(updates).toHaveLength(frozenUpdates)
+      }),
+    { config: { shell: process.platform === "win32" ? "powershell.exe" : "/bin/bash" } },
+    30_000,
+  )
+})
 
 const run = Effect.fn("ShellToolTest.run")(function* (
   args: Tool.InferParameters<typeof ShellTool>,
@@ -1038,7 +1097,7 @@ describe("tool.shell abort", () => {
           const collected: string[] = []
           const res = yield* run(
             {
-              command: `echo before && sleep 30`,
+              command: PS.has(sh()) ? 'Write-Output "before"; Start-Sleep -Seconds 30' : "echo before && sleep 30",
               description: "Long running command",
             },
             {
@@ -1135,7 +1194,9 @@ describe("tool.shell abort", () => {
         const updates: string[] = []
         const result = yield* run(
           {
-            command: `echo first && sleep 0.1 && echo second`,
+            command: PS.has(sh())
+              ? 'Write-Output "first"; Start-Sleep -Milliseconds 100; Write-Output "second"'
+              : "echo first && sleep 0.1 && echo second",
             description: "Streaming test",
           },
           {

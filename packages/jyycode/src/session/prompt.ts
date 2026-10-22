@@ -1564,7 +1564,8 @@ export const layer = Layer.effect(
             yield* bus.publish(Session.Event.Error, {
               sessionID,
               error: new NamedError.Unknown({
-                message: "The session's user request could not be read, so the task stopped. Try again in a new session or repair the session history.",
+                message:
+                  "The session's user request could not be read, so the task stopped. Try again in a new session or repair the session history.",
               }).toObject(),
             })
             break
@@ -1731,8 +1732,12 @@ export const layer = Layer.effect(
                   // the same setup prefix while changing the actual operation;
                   // truncating that prefix falsely stops productive sessions.
                   const input = "input" in part.state ? JSON.stringify(part.state.input) : undefined
-                  const result = part.state.status === "completed" ? part.state.output
-                    : part.state.status === "error" ? part.state.error : ""
+                  const result =
+                    part.state.status === "completed"
+                      ? part.state.output
+                      : part.state.status === "error"
+                        ? part.state.error
+                        : ""
                   const fingerprint = createHash("sha256")
                     .update(input ?? "")
                     .update("\0")
@@ -2775,7 +2780,7 @@ export const layer = Layer.effect(
 
       const templateParts = yield* resolvePromptParts(template)
       const isSubtask = (agent.mode === "subagent" && cmd.subtask !== false) || cmd.subtask === true
-      const parts = isSubtask
+      const parts: Types.DeepMutable<PromptInput["parts"]> = isSubtask
         ? [
             {
               type: "subtask" as const,
@@ -2787,6 +2792,18 @@ export const layer = Layer.effect(
             },
           ]
         : [...templateParts, ...(input.parts ?? [])]
+
+      if (cmd.source === "skill") {
+        const skill = { name: cmd.name, arguments: input.arguments }
+        const expanded = parts.find((part) => part.type === "text" && !part.synthetic)
+        if (expanded?.type === "text") {
+          // Keep the complete instructions for the model; clients render the
+          // invocation metadata instead of printing the expanded skill body.
+          expanded.metadata = { ...expanded.metadata, skill }
+        } else {
+          parts.unshift({ type: "text", text: `/${cmd.name}`, ignored: true, metadata: { skill } })
+        }
+      }
 
       const userAgent = isSubtask ? (input.agent ?? (yield* agents.defaultInfo()).name) : agent.name
       const userModel = isSubtask

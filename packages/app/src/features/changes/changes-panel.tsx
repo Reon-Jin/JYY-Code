@@ -61,7 +61,9 @@ export function ChangesPanelView(props: ChangesPanelViewProps) {
     <section class="changes-panel" aria-labelledby="changes-panel-title">
       <header class="changes-panel__header">
         <FileDiff aria-hidden="true" />
-        <h2 id="changes-panel-title">{tr("changes.workspace-changes")}</h2>
+        <h2 id="changes-panel-title">
+          {tr(props.mode === "session" ? "conversation.turn-changes" : "changes.workspace-changes")}
+        </h2>
         <Show when={!props.loading && !props.error}>
           <span class="changes-panel__summary">
             {changes().length} {tr("changes.files")}
@@ -102,7 +104,15 @@ export function ChangesPanelView(props: ChangesPanelViewProps) {
           >
             <Show
               when={changes().length > 0}
-              fallback={<p class="changes-panel__empty">{tr("changes.the-workspace-has-no-uncommitted-changes")}</p>}
+              fallback={
+                <p class="changes-panel__empty">
+                  {tr(
+                    props.mode === "session"
+                      ? "conversation.no-file-changes"
+                      : "changes.the-workspace-has-no-uncommitted-changes",
+                  )}
+                </p>
+              }
             >
               <ul class="changes-panel__files">
                 <For each={changes()}>

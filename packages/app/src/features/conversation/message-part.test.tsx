@@ -1,4 +1,5 @@
-import type { PatchPart, StepFinishPart, StepStartPart } from "@jyycode-ai/sdk/v2/client"
+import type { FilePart, PatchPart, StepFinishPart, StepStartPart } from "@jyycode-ai/sdk/v2/client"
+import { createSignal } from "solid-js"
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it } from "vitest"
 import { MessagePartView } from "./message-part"
@@ -9,6 +10,57 @@ const base = { id: "part_step", sessionID: "ses_1", messageID: "msg_1" }
 afterEach(cleanup)
 
 describe("MessagePartView", () => {
+  it("keeps an image preview open across attachment refreshes until the user closes it", () => {
+    const [part, setPart] = createSignal<FilePart>({
+      ...base,
+      type: "file",
+      mime: "image/png",
+      filename: "artwork.png",
+      url: "data:image/png;base64,aGVsbG8=",
+    })
+    render(() => <MessagePartView part={part()} />)
+    fireEvent.click(screen.getByRole("button", { name: "查看图片 artwork.png" }))
+    const dialog = screen.getByRole("dialog", { name: "artwork.png" })
+    for (let i = 0; i < 20; i++) {
+      setPart({ ...part() })
+      expect(screen.getByRole("dialog", { name: "artwork.png" })).toBe(dialog)
+    }
+    setPart({ ...part(), url: "data:image/png;base64,bmV3=" })
+    expect(screen.getByRole("dialog", { name: "artwork.png" })).toBe(dialog)
+    fireEvent.click(dialog.querySelector("button")!)
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+  it("shows a compact skill badge and the user's request while hiding the expanded instructions", () => {
+    render(() => (
+      <MessagePartView
+        messageRole="user"
+        part={{
+          ...base,
+          type: "text",
+          text: "# Long skill instructions\nHidden output contract",
+          metadata: { skill: { name: "jyy-drawing", arguments: "画一幅苏州园林的水彩画" } },
+        }}
+      />
+    ))
+    expect(screen.getByLabelText("Skill: jyy-drawing")).toBeVisible()
+    expect(screen.getByText("画一幅苏州园林的水彩画")).toBeVisible()
+    expect(screen.queryByText(/Hidden output contract|Long skill instructions/)).not.toBeInTheDocument()
+  })
+  it("keeps a skill invocation visible when the user supplies no extra arguments", () => {
+    render(() => (
+      <MessagePartView
+        messageRole="user"
+        part={{
+          ...base,
+          type: "text",
+          text: "# Hidden skill body",
+          metadata: { skill: { name: "review", arguments: "" } },
+        }}
+      />
+    ))
+    expect(screen.getByLabelText("Skill: review")).toBeVisible()
+    expect(screen.queryByText(/Hidden skill body/)).not.toBeInTheDocument()
+  })
   it.each(["audio/wav", "video/mp4"])("renders persisted %s attachments with authenticated native controls", (mime) => {
     const { container } = render(() => (
       <DataProvider

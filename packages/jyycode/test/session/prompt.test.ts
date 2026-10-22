@@ -1,7 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { FetchHttpClient } from "effect/unstable/http"
 import { expect, test } from "bun:test"
-import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect"
+import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer, Option } from "effect"
 import path from "path"
 import fs from "fs/promises"
 import { fileURLToPath, pathToFileURL } from "url"
@@ -2347,6 +2347,116 @@ it.instance("warns then cuts off repeated main-session tool turns", () =>
   }),
 )
 
+it.instance(
+  "background bash completion wakes an idle Agent with the command result",
+  () =>
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig((url) => ({
+        ...providerCfg(url),
+        shell: process.platform === "win32" ? "powershell.exe" : "/bin/sh",
+      }))
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({
+        title: "Background bash wake",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "run a long check" }],
+      })
+      yield* llm.tool("bash", {
+        command:
+          process.platform === "win32"
+            ? 'Write-Output "check-started"; while (!(Test-Path -LiteralPath ".release-check")) { Start-Sleep -Milliseconds 50 }; Write-Output "check-finished"'
+            : "echo check-started; while [ ! -f .release-check ]; do sleep 0.05; done; echo check-finished",
+        workdir: dir,
+        timeout: 60_000,
+        description: "Long background check",
+      })
+      yield* llm.text("Independent work completed while the check runs.")
+      yield* llm.text("I have processed the completed background check.")
+      const first = yield* prompt.loop({ sessionID: chat.id })
+      expect(first.parts.some((part) => part.type === "text" && part.text.includes("Independent work"))).toBe(true)
+      expect(yield* llm.calls).toBe(2)
+      yield* writeText(path.join(dir, ".release-check"), "complete")
+      yield* pollWithTimeout(
+        sessions
+          .messages({ sessionID: chat.id })
+          .pipe(
+            Effect.map((messages) =>
+              messages.some((message) =>
+                message.parts.some((part) => part.type === "text" && part.text.includes("I have processed")),
+              )
+                ? messages
+                : undefined,
+            ),
+          ),
+        "Agent was not woken by background completion",
+        "15 seconds",
+      )
+      const history = yield* sessions.messages({ sessionID: chat.id })
+      const notifications = history
+        .flatMap((message) => message.parts)
+        .filter((part) => part.type === "text" && part.metadata?.kind === "background_process_completed")
+      expect(notifications).toHaveLength(1)
+      expect(JSON.stringify(notifications)).toContain("check-finished")
+      expect(JSON.stringify((yield* llm.inputs)[2])).toContain("Background shell command finished")
+      expect(yield* llm.calls).toBe(3)
+    }),
+  45_000,
+)
+
+it.instance(
+  "stopping a session kills its yielded bash without waking the Agent",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig((url) => ({
+        ...providerCfg(url),
+        shell: process.platform === "win32" ? "powershell.exe" : "/bin/sh",
+      }))
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const processes = yield* BackgroundProcess.Service
+      const chat = yield* sessions.create({
+        title: "Background bash cancel",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "run a long check" }],
+      })
+      yield* llm.tool("bash", {
+        command: process.platform === "win32" ? "Start-Sleep -Seconds 60" : "sleep 60",
+        timeout: 90_000,
+        description: "Cancellable background check",
+      })
+      yield* llm.text("Waiting for the background check.")
+      const first = yield* prompt.loop({ sessionID: chat.id })
+      const history = yield* sessions.messages({ sessionID: chat.id })
+      const tool = history
+        .flatMap((message) => message.parts)
+        .find((part) => part.type === "tool" && part.tool === "bash")
+      expect(tool?.type === "tool" && tool.state.status === "completed").toBe(true)
+      if (!tool || tool.type !== "tool" || tool.state.status !== "completed") return
+      const id = tool.state.metadata.process_id as string
+      expect((yield* processes.get(id))?.status).toBe("running")
+      yield* prompt.cancel(chat.id)
+      expect((yield* processes.wait({ id }))?.status).toBe("cancelled")
+      expect(Option.isNone(yield* llm.wait(3).pipe(Effect.timeoutOption("500 millis")))).toBe(true)
+      expect(yield* llm.calls).toBe(2)
+      expect(first.info.role).toBe("assistant")
+      expect(JSON.stringify(yield* sessions.messages({ sessionID: chat.id }))).not.toContain(
+        "background_process_completed",
+      )
+    }),
+  45_000,
+)
+
 it.instance("does not stop distinct long tool calls that share a setup prefix", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
@@ -2365,10 +2475,14 @@ it.instance("does not stop distinct long tool calls that share a setup prefix", 
     })
     const commonPrefix = "# initialize screenshot analysis " + "x".repeat(240)
     for (let index = 0; index < 4; index++) {
-      yield* llm.push(reply().tool("bash", {
-        command: `${commonPrefix}\necho scan-${index}`,
-        description: "Inspect a different screen sample",
-      }).stop())
+      yield* llm.push(
+        reply()
+          .tool("bash", {
+            command: `${commonPrefix}\necho scan-${index}`,
+            description: "Inspect a different screen sample",
+          })
+          .stop(),
+      )
     }
     yield* llm.text("all scans complete")
 
@@ -2379,9 +2493,13 @@ it.instance("does not stop distinct long tool calls that share a setup prefix", 
       expect(result.parts.some((part) => part.type === "text" && part.text === "all scans complete")).toBe(true)
     }
     const msgs = yield* MessageV2.filterCompactedEffect(session.id)
-    expect(msgs.some((msg) =>
-      msg.parts.some((part) => part.type === "text" && part.synthetic && part.metadata?.kind === "stuck_loop_warning"),
-    )).toBe(false)
+    expect(
+      msgs.some((msg) =>
+        msg.parts.some(
+          (part) => part.type === "text" && part.synthetic && part.metadata?.kind === "stuck_loop_warning",
+        ),
+      ),
+    ).toBe(false)
   }),
 )
 
@@ -2454,7 +2572,9 @@ it.instance("normal completion releases registered computer resources", () =>
     const sessions = yield* Session.Service
     const chat = yield* sessions.create({ title: "Pinned" })
     let released = false
-    registerComputerSession(chat.id, async () => { released = true })
+    registerComputerSession(chat.id, async () => {
+      released = true
+    })
     yield* llm.text("done")
     yield* prompt.prompt({ sessionID: chat.id, agent: "build", parts: [{ type: "text", text: "finish" }] })
     expect(released).toBe(true)
@@ -2478,7 +2598,9 @@ it.instance(
       const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* llm.wait(1)
       let computerReleased = false
-      registerComputerSession(chat.id, async () => { computerReleased = true })
+      registerComputerSession(chat.id, async () => {
+        computerReleased = true
+      })
       yield* prompt.cancel(chat.id)
       const exit = yield* Fiber.await(fiber)
       expect(computerReleased).toBe(true)
@@ -3867,6 +3989,38 @@ noLLMServer.instance(
           expect(err.data.message).toContain("build")
         }
       }
+    }),
+  30_000,
+)
+
+it.instance(
+  "skill commands persist compact invocation metadata without removing model instructions",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const commands = yield* Command.Service
+      const skill = yield* commands.get("customize-jyycode")
+      expect(skill?.source).toBe("skill")
+      const instructions = yield* Effect.promise(async () => skill!.template)
+      const chat = yield* sessions.create({ title: "Pinned" })
+      yield* llm.text("done")
+      yield* prompt.command({
+        sessionID: chat.id,
+        command: "customize-jyycode",
+        arguments: "Explain the configuration",
+        model: "test/test-model",
+      })
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      const user = messages.find((message) => message.info.role === "user")!
+      const part = user.parts.find((part) => part.type === "text")!
+      expect(part.type).toBe("text")
+      if (part.type !== "text") return
+      expect(part.metadata?.skill).toEqual({ name: "customize-jyycode", arguments: "Explain the configuration" })
+      expect(part.text).toContain(instructions.trim())
+      expect(part.text).toContain("Explain the configuration")
+      expect(JSON.stringify(yield* llm.inputs)).toContain(JSON.stringify(instructions.trim()).slice(1, -1))
     }),
   30_000,
 )

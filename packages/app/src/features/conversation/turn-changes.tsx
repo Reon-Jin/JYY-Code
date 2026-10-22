@@ -70,14 +70,16 @@ export function turnChangeSummaries(
     const inlineMedia = replies
       .flatMap((reply) => reply.parts)
       .filter((part) => part.type === "file" && /^(image|audio|video)\//.test(part.mime))
+    const changes = message.info.summary.diffs.filter(
+      (change) => !change.file?.replaceAll("\\", "/").split("/").includes(".jyycode"),
+    )
+    if (changes.length === 0) continue
     result.set(anchor, {
       messageID: message.info.id,
       directory,
       inlineMediaNames: inlineMedia.flatMap((part) => (part.type === "file" && part.filename ? [part.filename] : [])),
       inlineImageCount: inlineMedia.filter((part) => part.type === "file" && part.mime.startsWith("image/")).length,
-      changes: message.info.summary.diffs.filter(
-        (change) => !change.file?.replaceAll("\\", "/").split("/").includes(".jyycode"),
-      ),
+      changes,
     })
   }
   return result
@@ -96,6 +98,7 @@ export function TurnChanges(props: { summary: TurnChangeSummary }) {
     })),
   )
   const visible = () => (showAll() ? changes() : changes().slice(0, 5))
+  const changesByFile = createMemo(() => new Map(changes().map((change) => [change.file, change])))
   const mediaChanges = () =>
     changes().filter(
       (change) =>
@@ -122,19 +125,16 @@ export function TurnChanges(props: { summary: TurnChangeSummary }) {
       return next
     })
   return (
-    <section class="turn-changes" aria-label={tr("conversation.turn-changes")}>
-      <Show
-        when={changes().length > 0}
-        fallback={<p class="turn-changes__empty">{tr("conversation.no-file-changes")}</p>}
-      >
+    <Show when={changes().length > 0}>
+      <section class="turn-changes" aria-label={tr("conversation.turn-changes")}>
         <Show when={data && otherMedia().length > 0}>
           <div class="turn-changes__media">
-            <For each={showAllMedia() ? otherMedia() : otherMedia().slice(0, 5)}>
-              {(change) => (
+            <For each={(showAllMedia() ? otherMedia() : otherMedia().slice(0, 5)).map((change) => change.file)}>
+              {(file) => (
                 <MediaPreview
-                  kind={previewKind(change.file) === "audio" ? "audio" : "video"}
-                  name={change.file}
-                  src={mediaUrl(change.file)}
+                  kind={previewKind(file) === "audio" ? "audio" : "video"}
+                  name={file}
+                  src={mediaUrl(file)}
                 />
               )}
             </For>
@@ -154,8 +154,8 @@ export function TurnChanges(props: { summary: TurnChangeSummary }) {
         </Show>
         <Show when={data && images().length > 0}>
           <div class="turn-changes__images">
-            <For each={showAllImages() ? images() : images().slice(0, imageLimit())}>
-              {(change) => <MediaPreview kind="image" name={change.file} src={mediaUrl(change.file)} />}
+            <For each={(showAllImages() ? images() : images().slice(0, imageLimit())).map((change) => change.file)}>
+              {(file) => <MediaPreview kind="image" name={file} src={mediaUrl(file)} />}
             </For>
           </div>
           <Show when={images().length > imageLimit()}>
@@ -201,9 +201,13 @@ export function TurnChanges(props: { summary: TurnChangeSummary }) {
           </Button>
         </header>
         <ul class="turn-changes__files">
-          <For each={visible()}>
-            {(change) => (
-              <ChangeFile change={change} expanded={expanded().has(change.file)} onToggle={() => toggle(change.file)} />
+          <For each={visible().map((change) => change.file)}>
+            {(file) => (
+              <ChangeFile
+                change={changesByFile().get(file)!}
+                expanded={expanded().has(file)}
+                onToggle={() => toggle(file)}
+              />
             )}
           </For>
         </ul>
@@ -222,7 +226,7 @@ export function TurnChanges(props: { summary: TurnChangeSummary }) {
             </Show>
           </button>
         </Show>
-      </Show>
-    </section>
+      </section>
+    </Show>
   )
 }

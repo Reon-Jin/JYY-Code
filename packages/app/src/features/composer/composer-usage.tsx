@@ -51,7 +51,6 @@ export function ComposerUsage(props: { metrics: ComposerUsageMetrics; permission
       </div>
       <Show
         when={props.metrics.aggregate}
-        keyed
         fallback={
           <Show when={props.metrics.aggregateScope === "tree"}>
             <div class="composer-usage__item">
@@ -73,49 +72,49 @@ export function ComposerUsage(props: { metrics: ComposerUsageMetrics; permission
           <>
             <div
               class="composer-usage__item composer-usage__tokens"
-              tabIndex={aggregate.tokens.total > 0 ? 0 : undefined}
-              aria-describedby={aggregate.tokens.total > 0 ? "composer-token-breakdown" : undefined}
+              tabIndex={aggregate().tokens.total > 0 ? 0 : undefined}
+              aria-describedby={aggregate().tokens.total > 0 ? "composer-token-breakdown" : undefined}
             >
               <span>
                 {tr(props.metrics.aggregateScope === "tree" ? "composer.all-agent-tokens" : "composer.session-token")}
               </span>
               <strong>
-                {aggregate.tokens.total > 0 ? compact(aggregate.tokens.total) : tr("composer.no-data-yet")}
+                {aggregate().tokens.total > 0 ? compact(aggregate().tokens.total) : tr("composer.no-data-yet")}
               </strong>
-              <Show when={aggregate.tokens.total > 0}>
+              <Show when={aggregate().tokens.total > 0}>
                 <div id="composer-token-breakdown" class="composer-usage__popover" role="tooltip">
                   <strong>{tr("composer.token-source")}</strong>
                   <Show when={props.metrics.aggregateScope === "tree"}>
                     <p>{tr("composer.all-agent-scope", { count: props.metrics.agentCount ?? 1 })}</p>
                   </Show>
                   <dl>
-                    <Show when={aggregate.tokens.input > 0}>
+                    <Show when={aggregate().tokens.input > 0}>
                       <div>
                         <dt>{tr("composer.enter")}</dt>
-                        <dd>{exact(aggregate.tokens.input)}</dd>
+                        <dd>{exact(aggregate().tokens.input)}</dd>
                       </div>
                     </Show>
-                    <Show when={aggregate.tokens.output > 0}>
+                    <Show when={aggregate().tokens.output > 0}>
                       <div>
                         <dt>{tr("composer.output")}</dt>
-                        <dd>{exact(aggregate.tokens.output)}</dd>
+                        <dd>{exact(aggregate().tokens.output)}</dd>
                       </div>
                     </Show>
-                    <Show when={aggregate.tokens.reasoning > 0}>
+                    <Show when={aggregate().tokens.reasoning > 0}>
                       <div>
                         <dt>{tr("composer.think")}</dt>
-                        <dd>{exact(aggregate.tokens.reasoning)}</dd>
+                        <dd>{exact(aggregate().tokens.reasoning)}</dd>
                       </div>
                     </Show>
-                    <Show when={aggregate.tokens.cache > 0}>
+                    <Show when={aggregate().tokens.cache > 0}>
                       <div>
                         <dt>{tr("composer.cache")}</dt>
-                        <dd>{exact(aggregate.tokens.cache)}</dd>
+                        <dd>{exact(aggregate().tokens.cache)}</dd>
                       </div>
                     </Show>
                     <div class="composer-usage__total">
                       <dt>{tr("composer.total")}</dt>
-                      <dd>{exact(aggregate.tokens.total)}</dd>
+                      <dd>{exact(aggregate().tokens.total)}</dd>
                     </div>
                   </dl>
                 </div>
@@ -123,7 +122,7 @@ export function ComposerUsage(props: { metrics: ComposerUsageMetrics; permission
             </div>
             <div class="composer-usage__item">
               <span>{tr("composer.api-consumption")}</span>
-              <strong>{estimatedCost(aggregate.cost)}</strong>
+              <strong>{estimatedCost(aggregate().cost)}</strong>
             </div>
           </>
         )}

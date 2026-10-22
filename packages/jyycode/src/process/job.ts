@@ -1,10 +1,14 @@
 import { Identifier } from "@/id/id"
-import { Cause, Context, Effect, Exit, Fiber, Layer, Scope, Stream, SynchronizedRef } from "effect"
+import { Cause, Context, Deferred, Effect, Exit, Fiber, Layer, Option, Scope, Stream, SynchronizedRef } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { AppProcess } from "@jyycode-ai/core/process"
 import * as Truncate from "@/tool/truncate"
 import { budgetFor } from "@/execution/budget"
-import { createOutputRetention, type OutputRetention } from "@jyycode-ai/core/output-retention"
+import {
+  createOutputRetention,
+  type OutputRetention,
+  type OutputRetentionResult,
+} from "@jyycode-ai/core/output-retention"
 
 export type Status = "running" | "completed" | "error" | "cancelled" | "timed_out" | "kill_failed"
 
@@ -29,6 +33,8 @@ export type Info = {
 
 type Active = {
   info: Info
+  done: Deferred.Deferred<Info>
+  processScope: Scope.Closeable
   handle?: AppProcess.AppProcessHandle
   retention: OutputRetention
   outputFiber?: Fiber.Fiber<void, unknown>
@@ -38,6 +44,8 @@ type Active = {
 
 type FinishUpdate = {
   info?: Info
+  done?: Deferred.Deferred<Info>
+  processScope?: Scope.Closeable
   watchdog?: Fiber.Fiber<void, unknown>
 }
 
@@ -49,6 +57,7 @@ export type StartInput = {
   title?: string
   owner_session_id?: string
   timeout?: number
+  onOutput?: (chunk: string) => Effect.Effect<void>
 }
 
 export type OutputInput = {
@@ -71,14 +80,24 @@ export interface Interface {
   readonly start: (input: StartInput) => Effect.Effect<Info>
   readonly get: (id: string) => Effect.Effect<Info | undefined>
   readonly output: (input: OutputInput) => Effect.Effect<OutputResult>
+  readonly wait: (input: { id: string; timeout?: number }) => Effect.Effect<Info | undefined>
+  /** Release a foreground result once its caller has consumed it. Running/failed-to-kill children are preserved. */
+  readonly forget: (id: string) => Effect.Effect<void>
   readonly kill: (input: KillInput) => Effect.Effect<Info | undefined>
   readonly cancelOwner: (ownerSessionId: string) => Effect.Effect<ReadonlyArray<Info>>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/BackgroundProcess") {}
 
-function snapshot(active: Active): Info {
-  return { ...active.info }
+function snapshot(active: Active, retained: OutputRetentionResult = active.retention.snapshot()): Info {
+  return {
+    ...active.info,
+    truncated: retained.truncated,
+    bytesSeen: retained.bytesSeen,
+    bytesRetained: retained.bytesRetained,
+    sha256: retained.sha256,
+    ...(retained.truncated && retained.blobRef ? { outputPath: retained.blobRef } : {}),
+  }
 }
 
 export const layer = Layer.effect(
@@ -111,7 +130,8 @@ export const layer = Layer.effect(
         const next: Active = {
           ...active,
           handle: status === "kill_failed" ? active.handle : undefined,
-          watchdog: status === "kill_failed" ? undefined : active.watchdog,
+          watchdog: undefined,
+          outputFiber: undefined,
           terminationRequested: undefined,
           info: {
             ...active.info,
@@ -132,10 +152,17 @@ export const layer = Layer.effect(
           },
         }
         return [
-          { info: snapshot(next), watchdog: stopWatchdog ? active.watchdog : undefined },
+          {
+            info: snapshot(next),
+            done: active.done,
+            processScope: status === "kill_failed" ? undefined : active.processScope,
+            watchdog: stopWatchdog ? active.watchdog : undefined,
+          },
           new Map(items).set(id, next),
         ] as const
       })
+      if (result?.processScope) yield* Scope.close(result.processScope, Exit.void).pipe(Effect.ignore)
+      if (result?.done && result.info) yield* Deferred.succeed(result.done, result.info)
       if (result?.watchdog) yield* Fiber.interrupt(result.watchdog).pipe(Effect.ignore)
       return result?.info
     })
@@ -153,25 +180,11 @@ export const layer = Layer.effect(
       id: string,
       text: string,
     ) {
-      return yield* SynchronizedRef.updateEffect(
-        processes,
-        Effect.fnUntraced(function* (items) {
-          const active = items.get(id)
-          if (!active) return items
-          yield* Effect.promise(() => active.retention.append(text))
-          const preview = active.retention.snapshot()
-          return new Map(items).set(id, {
-            ...active,
-            info: {
-              ...active.info,
-              truncated: preview.truncated,
-              bytesSeen: preview.bytesSeen,
-              bytesRetained: preview.bytesRetained,
-              sha256: preview.sha256,
-            },
-          })
-        }),
-      )
+      // Each process has one stream consumer. Avoid copying the global map,
+      // hashing/decoding the full preview, or holding its lock across disk I/O
+      // for every chunk. Readers compute live metrics only when requested.
+      const active = (yield* SynchronizedRef.get(processes)).get(id)
+      if (active) yield* Effect.promise(() => active.retention.append(text))
     })
 
     const terminate = Effect.fn("BackgroundProcess.terminate")(function* (
@@ -224,10 +237,14 @@ export const layer = Layer.effect(
       const id = Identifier.ascending("proc")
       const limits = yield* trunc.limits()
       const budget = budgetFor("background_process", input.timeout)
-      const handle = yield* appProcess
-        .spawn(input.command)
-        .pipe(Effect.orDie, Effect.provideService(Scope.Scope, scope))
+      const processScope = yield* Scope.fork(scope)
+      const handle = yield* appProcess.spawn(input.command).pipe(
+        Effect.provideService(Scope.Scope, processScope),
+        Effect.onError(() => Scope.close(processScope, Exit.void)),
+        Effect.orDie,
+      )
       const started_at = Date.now()
+      const done = yield* Deferred.make<Info>()
       const info: Info = {
         id,
         command: input.rawCommand,
@@ -242,6 +259,8 @@ export const layer = Layer.effect(
       yield* SynchronizedRef.update(processes, (items) =>
         new Map(items).set(id, {
           info,
+          done,
+          processScope,
           handle,
           retention: createOutputRetention({
             maxBytes: limits.maxBytes,
@@ -255,14 +274,16 @@ export const layer = Layer.effect(
       )
 
       const outputFiber = yield* Stream.runForEach(Stream.decodeText(handle.all), (chunk) =>
-        appendRef(processes, id, chunk),
+        appendRef(processes, id, chunk).pipe(
+          Effect.andThen(input.onOutput ? input.onOutput(chunk).pipe(Effect.ignore) : Effect.void),
+        ),
       ).pipe(
         Effect.catchCause(() => Effect.void),
         Effect.forkIn(scope, { startImmediately: true }),
       )
       yield* SynchronizedRef.update(processes, (items) => {
         const active = items.get(id)
-        return active ? new Map(items).set(id, { ...active, outputFiber }) : items
+        return active?.info.status === "running" ? new Map(items).set(id, { ...active, outputFiber }) : items
       })
       yield* handle.exitCode.pipe(
         Effect.flatMap((exit) =>
@@ -283,11 +304,12 @@ export const layer = Layer.effect(
         Effect.asVoid,
         Effect.forkIn(scope, { startImmediately: true }),
       )
-      yield* SynchronizedRef.update(processes, (items) => {
+      const watching = yield* SynchronizedRef.modify(processes, (items) => {
         const active = items.get(id)
-        if (!active || active.info.status !== "running") return items
-        return new Map(items).set(id, { ...active, watchdog })
+        if (!active || active.info.status !== "running") return [false, items] as const
+        return [true, new Map(items).set(id, { ...active, watchdog })] as const
       })
+      if (!watching) yield* Fiber.interrupt(watchdog)
 
       return info
     })
@@ -297,15 +319,35 @@ export const layer = Layer.effect(
       return active ? snapshot(active) : undefined
     })
 
+    const wait: Interface["wait"] = Effect.fn("BackgroundProcess.wait")(function* (input) {
+      const active = (yield* SynchronizedRef.get(processes)).get(input.id)
+      if (!active) return undefined
+      if (active.info.status !== "running") return snapshot(active)
+      if (input.timeout === undefined) return yield* Deferred.await(active.done)
+      const result = yield* Deferred.await(active.done).pipe(Effect.timeoutOption(Math.max(0, input.timeout)))
+      return Option.getOrUndefined(result)
+    })
+
+    const forget: Interface["forget"] = Effect.fn("BackgroundProcess.forget")((id) =>
+      SynchronizedRef.update(processes, (items) => {
+        const active = items.get(id)
+        if (!active || active.info.status === "running" || active.info.status === "kill_failed") return items
+        const next = new Map(items)
+        next.delete(id)
+        return next
+      }),
+    )
+
     const output: Interface["output"] = Effect.fn("BackgroundProcess.output")(function* (input) {
       const active = (yield* SynchronizedRef.get(processes)).get(input.id)
       if (!active) return { output: "" }
-      const text = active.retention.snapshot().preview
+      const retained = active.retention.snapshot()
+      const text = retained.preview
       const lines = text.split("\n")
       const limit = input.limit ?? 200
       const start = input.offset ? Math.max(0, input.offset - 1) : Math.max(0, lines.length - limit)
       return {
-        info: snapshot(active),
+        info: snapshot(active, retained),
         output: lines.slice(start, start + limit).join("\n"),
       }
     })
@@ -333,7 +375,7 @@ export const layer = Layer.effect(
       },
     )
 
-    return Service.of({ start, get, output, kill, cancelOwner })
+    return Service.of({ start, get, output, wait, forget, kill, cancelOwner })
   }),
 )
 

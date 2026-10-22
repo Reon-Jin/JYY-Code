@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Effect, Layer, Stream } from "effect"
+import { Effect, Fiber, Layer, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { AppProcess } from "@jyycode-ai/core/process"
 import { BackgroundProcess } from "@/process/job"
@@ -76,6 +76,52 @@ const delayedIt = testEffect(
 )
 
 describe("process.job", () => {
+  it.instance("wait timeout preserves the command and all waiters receive drained output", () =>
+    Effect.gen(function* () {
+      const service = yield* BackgroundProcess.Service
+      const proc = yield* service.start({
+        command: ChildProcess.make(
+          process.execPath,
+          ["-e", "setTimeout(() => { console.log('done'); process.exit(42) }, 500)"],
+          {
+            cwd: process.cwd(),
+            stdin: "ignore",
+          },
+        ),
+        rawCommand: "deferred completion fixture",
+        cwd: process.cwd(),
+        env: process.env,
+      })
+      expect(yield* service.wait({ id: proc.id, timeout: 1 })).toBeUndefined()
+      expect((yield* service.get(proc.id))?.status).toBe("running")
+      yield* service.forget(proc.id)
+      expect((yield* service.get(proc.id))?.status).toBe("running")
+      const a = yield* service.wait({ id: proc.id }).pipe(Effect.forkChild)
+      const b = yield* service.wait({ id: proc.id }).pipe(Effect.forkChild)
+      expect((yield* Fiber.join(a))?.exit).toBe(42)
+      expect((yield* Fiber.join(b))?.status).toBe("error")
+      expect((yield* service.output({ id: proc.id })).output).toContain("done")
+      expect((yield* service.wait({ id: proc.id, timeout: 0 }))?.exit).toBe(42)
+      yield* service.forget(proc.id)
+      expect(yield* service.get(proc.id)).toBeUndefined()
+      expect(yield* service.wait({ id: "missing" })).toBeUndefined()
+    }),
+  )
+
+  ownedIt.live("cancellation resolves completion waiters", () =>
+    Effect.gen(function* () {
+      const service = yield* BackgroundProcess.Service
+      const proc = yield* service.start({
+        command: ChildProcess.make("ignored"),
+        rawCommand: "cancel wait fixture",
+        cwd: process.cwd(),
+        env: process.env,
+      })
+      const waiter = yield* service.wait({ id: proc.id }).pipe(Effect.forkChild)
+      yield* service.kill({ id: proc.id })
+      expect((yield* Fiber.join(waiter))?.status).toBe("cancelled")
+    }),
+  )
   delayedIt.live("includes adapter inspection overhead before declaring termination failed", () =>
     Effect.gen(function* () {
       const service = yield* BackgroundProcess.Service

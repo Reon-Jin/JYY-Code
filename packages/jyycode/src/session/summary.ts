@@ -5,6 +5,7 @@ import { Storage } from "@/storage/storage"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID } from "./schema"
+import { InstanceState } from "@/effect/instance-state"
 
 // A workspace may contain a growing log or generated file. Keep change counts
 // and filenames, but do not copy an unbounded patch into every user message.
@@ -130,7 +131,6 @@ export const layer = Layer.effect(
         },
       })
       yield* storage.write(["session_diff", input.sessionID], diffs).pipe(Effect.ignore)
-      yield* bus.publish(Session.Event.Diff, { sessionID: input.sessionID, diff: diffs })
 
       const messages = all.filter(
         (m) => m.info.id === input.messageID || (m.info.role === "assistant" && m.info.parentID === input.messageID),
@@ -140,25 +140,34 @@ export const layer = Layer.effect(
       const msgDiffs = limitSummaryPatches(yield* computeDiff({ messages }))
       target.info.summary = { ...target.info.summary, diffs: msgDiffs }
       yield* sessions.updateMessage(target.info)
+      // The sidebar and a subsequent GET must use the same scope. Non-Git
+      // projects show the latest user turn; Git retains its session aggregate.
+      yield* bus.publish(Session.Event.Diff, {
+        sessionID: input.sessionID,
+        diff: yield* diff({ sessionID: input.sessionID }),
+      })
     })
 
     const diff = Effect.fn("SessionSummary.diff")(function* (input: { sessionID: SessionID; messageID?: MessageID }) {
-      if (input.messageID) {
+      const instance = yield* InstanceState.context
+      if (input.messageID || instance.project.vcs !== "git") {
         const messages = yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)
-        const user = messages.find((message) => message.info.id === input.messageID && message.info.role === "user")
-        if (!user || user.info.role !== "user") return []
-        if (user.info.summary?.diffs)
+        const messageID = input.messageID ?? messages.findLast((message) => message.info.role === "user")?.info.id
+        const user = messages.find((message) => message.info.id === messageID && message.info.role === "user")
+        if (input.messageID && !user) return []
+        if (user?.info.role === "user" && user.info.summary?.diffs)
           return user.info.summary.diffs.map((item) => ({
             ...item,
             ...(item.file ? { file: unquoteGitPath(item.file) } : {}),
           }))
-        return yield* computeDiff({
-          messages: messages.filter(
-            (message) =>
-              message.info.id === input.messageID ||
-              (message.info.role === "assistant" && message.info.parentID === input.messageID),
-          ),
-        })
+        if (user)
+          return yield* computeDiff({
+            messages: messages.filter(
+              (message) =>
+                message.info.id === messageID ||
+                (message.info.role === "assistant" && message.info.parentID === messageID),
+            ),
+          })
       }
       const diffs = yield* storage
         .read<Snapshot.FileDiff[]>(["session_diff", input.sessionID])

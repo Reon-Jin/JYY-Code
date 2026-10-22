@@ -1,14 +1,15 @@
-import { createEffect, createSignal, Match, Show, Switch } from "solid-js"
+import { createEffect, createMemo, createSignal, Match, Show, Switch } from "solid-js"
 import { Dialog } from "../../components/ui/dialog"
 import { tr } from "../../i18n/i18n-context"
 
 export function MediaPreview(props: { kind: "image" | "audio" | "video"; name: string; src?: string }) {
   const [expanded, setExpanded] = createSignal(false)
   const [failed, setFailed] = createSignal(false)
+  const source = createMemo(() => props.src)
+  // Refresh load errors when the URL changes; keep the user's preview open.
   createEffect(() => {
-    props.src
+    source()
     setFailed(false)
-    setExpanded(false)
   })
   return (
     <figure class="conversation-attachment" data-kind={props.kind}>

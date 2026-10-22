@@ -1,6 +1,6 @@
 import type { FilePart, Part } from "@jyycode-ai/sdk/v2/client"
-import { File as FileIcon } from "lucide-solid"
-import { createEffect, createSignal, Match, Show, Switch } from "solid-js"
+import { File as FileIcon, Sparkles } from "lucide-solid"
+import { createEffect, createMemo, createSignal, Match, Show, Switch } from "solid-js"
 import { Dialog } from "../../components/ui/dialog"
 import { useOptionalData } from "../../data/context"
 import { tr } from "../../i18n/i18n-context"
@@ -29,15 +29,16 @@ export function ImageAttachment(props: { part: FilePart }) {
   const data = useOptionalData()
   const [expanded, setExpanded] = createSignal(false)
   const [failed, setFailed] = createSignal(false)
-  const source = () =>
+  const source = createMemo(() =>
     props.part.url.startsWith("data:image/") || props.part.url.startsWith("blob:http")
       ? props.part.url
-      : data?.attachmentUrl(props.part)
+      : data?.attachmentUrl(props.part),
+  )
   const label = () => props.part.filename ?? props.part.mime
+  // Message/SSE refreshes must not dismiss a preview the user opened.
   createEffect(() => {
     source()
     setFailed(false)
-    setExpanded(false)
   })
   return (
     <figure class="conversation-attachment" data-kind="image">
@@ -93,6 +94,22 @@ export function MessagePartView(props: { part: Part; messageRole?: string; messa
               <Match when={presentation().kind === "hidden"}>{null}</Match>
               <Match when={presentation().kind === "text"}>
                 <TextPartView part={{ ...part(), text: (presentation() as { kind: "text"; text: string }).text }} />
+              </Match>
+              <Match when={presentation().kind === "skill" ? presentation() : undefined}>
+                {(current) => {
+                  const skill = () => current() as Extract<ReturnType<typeof presentation>, { kind: "skill" }>
+                  return (
+                    <div class="conversation-skill-invocation">
+                      <span class="conversation-skill" aria-label={`Skill: ${skill().name}`}>
+                        <Sparkles aria-hidden="true" />
+                        <span>{skill().name}</span>
+                      </span>
+                      <Show when={skill().arguments.trim()}>
+                        <TextPartView part={{ ...part(), text: skill().arguments }} />
+                      </Show>
+                    </div>
+                  )
+                }}
               </Match>
             </Switch>
           )

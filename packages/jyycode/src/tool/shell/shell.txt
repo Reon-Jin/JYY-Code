@@ -10,6 +10,13 @@ IMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO N
 
 ${commandSection}
 
+# Long-running commands
+- Waits up to 10 seconds for completion. If still running, returns a process_id and current output while the command continues in the background.
+- The command timeout remains the maximum total runtime, separate from the 10-second foreground wait.
+- Continue independent work after a background return. Completion, exit status, and output will be delivered automatically to this session; do not repeatedly poll or rerun the command.
+- Only start dependent operations after the command has completed successfully. Use the process tool output/kill actions with process_id when you need to inspect or stop it.
+- Stopping the session also terminates its background commands.
+
 # Git and GitHub
 - Only commit, amend, push, or create PRs when explicitly requested.
 - Before committing, inspect `git status`, `git diff`, and `git log --oneline -10`; stage only intended files and never commit secrets.

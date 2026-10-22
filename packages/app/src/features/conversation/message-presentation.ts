@@ -1,14 +1,30 @@
 import type { Message, Part, TextPart } from "@jyycode-ai/sdk/v2/client"
 import type { ConversationMessage } from "./conversation-state"
 
-export type MessageTextPresentation = { kind: "hidden" } | { kind: "text"; text: string }
+export type MessageTextPresentation =
+  | { kind: "hidden" }
+  | { kind: "text"; text: string }
+  | { kind: "skill"; name: string; arguments: string }
 
 export function presentMessageText(input: {
-  part: Pick<TextPart, "text" | "synthetic">
+  part: Pick<TextPart, "text" | "synthetic" | "metadata">
   role?: string
   agent?: string
 }): MessageTextPresentation {
   if (input.part.synthetic) return { kind: "hidden" }
+  const skill: unknown = input.part.metadata?.skill
+  if (
+    input.role === "user" &&
+    skill &&
+    typeof skill === "object" &&
+    "name" in skill &&
+    "arguments" in skill &&
+    typeof skill.name === "string" &&
+    skill.name.trim() &&
+    typeof skill.arguments === "string"
+  ) {
+    return { kind: "skill", name: skill.name, arguments: skill.arguments }
+  }
   return { kind: "text", text: input.part.text }
 }
 

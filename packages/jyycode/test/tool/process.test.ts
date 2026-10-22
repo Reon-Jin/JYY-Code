@@ -48,6 +48,8 @@ const configLayer = Layer.succeed(
 const processLayer = Layer.succeed(
   BackgroundProcess.Service,
   BackgroundProcess.Service.of({
+    wait: () => Effect.succeed(undefined),
+    forget: () => Effect.void,
     start: (input) =>
       Effect.succeed({
         id: "proc_tooltest",

@@ -51,6 +51,13 @@ describe("ChangesPanel", () => {
     expect(screen.getByText("工作区没有未提交变更")).toBeVisible()
   })
 
+  it("labels non-Git changes as the current turn", () => {
+    render(() => <ChangesPanelView directory={directory} mode="session" changes={[]} />)
+    expect(screen.getByRole("heading", { name: "本轮文件变更" })).toBeVisible()
+    expect(screen.getByText("本轮未更改文件")).toBeVisible()
+    expect(screen.queryByText("工作区没有未提交变更")).not.toBeInTheDocument()
+  })
+
   it("shows the shared workspace compatibility warning without blocking the panel", () => {
     render(() => <ChangesPanelView directory={directory} changes={[]} sharedCompat />)
     expect(screen.getByRole("note")).toHaveTextContent("此子工作区与项目目录共享根目录")

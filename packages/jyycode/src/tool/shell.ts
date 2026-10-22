@@ -1,6 +1,5 @@
-import { Effect, Exit, Fiber, Stream } from "effect"
+import { Effect, Scope } from "effect"
 import os from "os"
-import { createWriteStream } from "node:fs"
 import * as Tool from "./tool"
 import path from "path"
 import * as Log from "@jyycode-ai/core/util/log"
@@ -23,7 +22,8 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
 import { budgetFor } from "@/execution/budget"
-import { createOutputRetention } from "@jyycode-ai/core/output-retention"
+import { BackgroundProcess } from "@/process/job"
+import type { TaskPromptOps } from "@/session/tools"
 
 export { Parameters } from "./shell/prompt"
 
@@ -349,6 +349,20 @@ export const ShellTool = Tool.define(
     const fs = yield* AppFileSystem.Service
     const trunc = yield* Truncate.Service
     const plugin = yield* Plugin.Service
+    const processes = yield* BackgroundProcess.Service
+    const background = yield* InstanceState.make(() =>
+      Effect.gen(function* () {
+        const scope = yield* Scope.Scope
+        const ids = new Set<string>()
+        yield* Effect.addFinalizer(() =>
+          Effect.forEach(ids, (id) => processes.kill({ id }), {
+            concurrency: "unbounded",
+            discard: true,
+          }),
+        )
+        return { scope, ids }
+      }),
+    )
     const flags = yield* RuntimeFlags.Service
     const defaultTimeout = flags.bashDefaultTimeoutMs ?? 2 * 60 * 1000
 
@@ -438,192 +452,156 @@ export const ShellTool = Tool.define(
         cwd: string
         env: NodeJS.ProcessEnv
         timeout: number
-        graceMs: number
         description: string
       },
       ctx: Tool.Context,
     ) {
       const limits = yield* trunc.limits()
-      let full = ""
+      const state = yield* InstanceState.get(background)
       let last = ""
-      let file = ""
-      let sink: ReturnType<typeof createWriteStream> | undefined
-      let cut = false
-      let expired = false
-      let aborted = false
-      let killFailed: string | undefined
-      const retention = createOutputRetention({ maxBytes: limits.maxBytes, strategy: "tail" })
+      let foreground = true
+      let lastUpdate = -Infinity
+      let publishing = false
+      let published = ""
+      const publish = Effect.fn("ShellTool.publish")(function* () {
+        while (foreground && last !== published) {
+          yield* Effect.sleep(Math.max(0, 100 - (performance.now() - lastUpdate)))
+          if (!foreground) return
+          const output = last
+          yield* ctx.metadata({ metadata: { output, description: input.description } })
+          published = output
+          lastUpdate = performance.now()
+        }
+      })
+      yield* ctx.metadata({ metadata: { output: "", description: input.description } })
 
-      const closeSink = Effect.fnUntraced(function* () {
-        const stream = sink
-        if (!stream) return
-        sink = undefined
-        if (stream.destroyed || stream.closed) return
-        yield* Effect.promise(
-          () =>
-            new Promise<void>((resolve) => {
-              let settled = false
-              const done = () => {
-                if (settled) return
-                settled = true
-                stream.off("close", done)
-                stream.off("error", done)
-                stream.off("finish", done)
-                resolve()
-              }
-              stream.once("close", done)
-              stream.once("error", done)
-              stream.once("finish", done)
-              stream.end(done)
-            }),
-        ).pipe(Effect.catch(() => Effect.void))
+      const result = Effect.fn("ShellTool.result")(function* (id: string, running = false) {
+        const current = yield* processes.output({ id, offset: 1, limit: Number.MAX_SAFE_INTEGER })
+        const info = current.info!
+        const end = tail(current.output, limits.maxLines, limits.maxBytes)
+        const cut = info.truncated === true || end.cut
+        const file = info.outputPath ?? (end.cut ? yield* trunc.write(current.output) : undefined)
+        let output = end.text || "(no output)"
+        if (cut && file) output = `...output truncated...\n\nFull output saved to: ${file}\n\n` + output
+        if (info.status === "timed_out") {
+          output += `\n\n<shell_metadata>\nshell tool terminated command after exceeding timeout ${input.timeout} ms. If this command is expected to take longer and is not waiting for interactive input, retry with a larger timeout value in milliseconds.\n</shell_metadata>`
+        }
+        if (info.status === "cancelled") output += "\n\n<shell_metadata>\nUser aborted the command\n</shell_metadata>"
+        if (running) {
+          output = [
+            "Command is still running in the background after 10 seconds.",
+            `<process_id>${id}</process_id>`,
+            `<status>${info.status}</status>`,
+            "Continue independent work. Completion will be sent automatically; do not poll or rerun this command. Wait for its result before dependent work. Use process output/kill with this id if needed.",
+            "",
+            output,
+          ].join("\n")
+        }
+        return {
+          title: input.description,
+          metadata: {
+            output: preview(current.output) || preview(output),
+            exit: info.exit ?? null,
+            description: input.description,
+            process_id: id,
+            status: info.status,
+            background: running,
+            truncated: cut,
+            bytesSeen: info.bytesSeen,
+            bytesRetained: info.bytesRetained,
+            sha256: info.sha256,
+            ...(cut && file ? { outputPath: file } : {}),
+          },
+          output,
+        }
       })
 
-      yield* ctx.metadata({
-        metadata: {
-          output: "",
-          description: input.description,
-        },
-      })
-
-      const code: number | null = yield* Effect.scoped(
+      return yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
-          yield* Effect.addFinalizer(closeSink)
-          const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env))
-
-          const outputFiber = yield* Effect.forkScoped(
-            Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
-              const observed = Effect.promise(() => retention.append(chunk))
-              last = preview(last + chunk)
-
-              if (file) {
-                return observed.pipe(
-                  Effect.andThen(
+          const info = yield* processes.start({
+            command: cmd(input.shell, input.command, input.cwd, input.env),
+            rawCommand: input.command,
+            cwd: input.cwd,
+            env: input.env,
+            timeout: input.timeout,
+            title: input.description,
+            owner_session_id: ctx.sessionID,
+            onOutput: (chunk) =>
+              Effect.gen(function* () {
+                if (!foreground) return
+                last = preview(last + chunk)
+                if (publishing) return
+                publishing = true
+                yield* publish().pipe(
+                  Effect.ensuring(
                     Effect.sync(() => {
-                      sink?.write(chunk)
+                      publishing = false
                     }),
                   ),
-                  Effect.andThen(
-                    ctx.metadata({
-                      metadata: {
-                        output: last,
-                        description: input.description,
-                      },
-                    }),
-                  ),
+                  Effect.forkIn(state.scope),
                 )
-              } else {
-                const next = full + chunk
-                if (Buffer.byteLength(next, "utf-8") > limits.maxBytes) {
-                  return observed.pipe(
-                    Effect.andThen(trunc.write(full)),
-                    Effect.andThen((next) =>
-                      Effect.sync(() => {
-                        file = next
-                        cut = true
-                        sink = createWriteStream(next, { flags: "a" })
-                        sink.write(chunk)
-                        full = ""
-                      }),
-                    ),
-                    Effect.andThen(
-                      ctx.metadata({
-                        metadata: {
-                          output: last,
-                          description: input.description,
-                        },
-                      }),
-                    ),
-                  )
-                }
-                full = next
-              }
-
-              return observed.pipe(
-                Effect.andThen(
-                  ctx.metadata({
-                    metadata: {
-                      output: last,
-                      description: input.description,
-                    },
-                  }),
-                ),
-              )
-            }),
-          )
-
-          const abort = Effect.callback<void>((resume) => {
-            if (ctx.abort.aborted) return resume(Effect.void)
-            const handler = () => resume(Effect.void)
+              }),
+          })
+          state.ids.add(info.id)
+          const abort = Effect.callback<"abort">((resume) => {
+            if (ctx.abort.aborted) return resume(Effect.succeed("abort"))
+            const handler = () => resume(Effect.succeed("abort"))
             ctx.abort.addEventListener("abort", handler, { once: true })
             return Effect.sync(() => ctx.abort.removeEventListener("abort", handler))
           })
-
-          const timeout = Effect.sleep(`${input.timeout + 100} millis`)
-
-          const exit = yield* Effect.raceAll([
-            handle.exitCode.pipe(Effect.map((code) => ({ kind: "exit" as const, code }))),
-            abort.pipe(Effect.map(() => ({ kind: "abort" as const, code: null }))),
-            timeout.pipe(Effect.map(() => ({ kind: "timeout" as const, code: null }))),
-          ])
-
-          if (exit.kind === "abort") {
-            aborted = true
-            const killed = yield* Effect.exit(handle.kill({ forceKillAfter: `${input.graceMs} millis` }))
-            if (Exit.isFailure(killed)) killFailed = String(killed.cause)
-          }
-          if (exit.kind === "timeout") {
-            expired = true
-            const killed = yield* Effect.exit(handle.kill({ forceKillAfter: `${input.graceMs} millis` }))
-            if (Exit.isFailure(killed)) killFailed = String(killed.cause)
+          const completed = yield* restore(
+            Effect.raceAll([processes.wait({ id: info.id, timeout: 10_000 }), abort]),
+          ).pipe(Effect.onInterrupt(() => processes.kill({ id: info.id }).pipe(Effect.asVoid)))
+          foreground = false
+          if (completed === "abort") yield* processes.kill({ id: info.id })
+          const current = yield* processes.get(info.id)
+          if (completed !== undefined || current?.status !== "running") {
+            const out = yield* result(info.id)
+            if (out.metadata.status === "kill_failed") {
+              yield* Effect.die(new ShellTerminationError(input.timeout, "process termination was not verified"))
+            }
+            state.ids.delete(info.id)
+            yield* ctx.metadata({ metadata: out.metadata })
+            yield* processes.forget(info.id)
+            return out
           }
 
-          yield* Fiber.join(outputFiber).pipe(Effect.catch(() => Effect.void))
-
-          return exit.kind === "exit" ? exit.code : null
+          const ops = ctx.extra?.promptOps as TaskPromptOps | undefined
+          yield* processes.wait({ id: info.id }).pipe(
+            Effect.flatMap((done) =>
+              Effect.gen(function* () {
+                if (done?.status !== "kill_failed") state.ids.delete(info.id)
+                // Stopping a session must never restart it via a completion wakeup.
+                if (
+                  !done ||
+                  done.status === "cancelled" ||
+                  done.termination_reason?.startsWith("session_cancelled") ||
+                  !ops?.wake
+                )
+                  return
+                const out = yield* result(info.id)
+                yield* ops.wake({
+                  sessionID: ctx.sessionID,
+                  kind: "background_process_completed",
+                  text: [
+                    `Background shell command finished: ${input.description}`,
+                    `Command: ${input.command}`,
+                    `Process id: ${info.id}`,
+                    `Status: ${done.status}; exit: ${done.exit ?? "unknown"}`,
+                    out.output,
+                    "Use this result to continue dependent work. Do not rerun a completed command.",
+                  ].join("\n"),
+                })
+              }),
+            ),
+            Effect.catchCause((cause) =>
+              Effect.sync(() => log.error("background shell notification failed", { cause: String(cause) })),
+            ),
+            Effect.forkIn(state.scope),
+          )
+          return yield* result(info.id, true)
         }),
-      ).pipe(Effect.ensuring(Effect.promise(() => retention.cancel()).pipe(Effect.ignore)), Effect.orDie)
-
-      if (killFailed) yield* Effect.die(new ShellTerminationError(input.timeout, killFailed))
-
-      const meta: string[] = []
-      if (expired) {
-        meta.push(
-          `shell tool terminated command after exceeding timeout ${input.timeout} ms. If this command is expected to take longer and is not waiting for interactive input, retry with a larger timeout value in milliseconds.`,
-        )
-      }
-      if (aborted) meta.push("User aborted the command")
-      const retained = yield* Effect.promise(() => retention.flush())
-      const end = tail(retained.preview, limits.maxLines, limits.maxBytes)
-      if (retained.truncated || end.cut) cut = true
-      if (!file && end.cut) {
-        file = yield* trunc.write(full)
-      }
-
-      let output = end.text
-      if (!output) output = "(no output)"
-
-      if (cut && file) {
-        output = `...output truncated...\n\nFull output saved to: ${file}\n\n` + output
-      }
-
-      if (meta.length > 0) {
-        output += "\n\n<shell_metadata>\n" + meta.join("\n") + "\n</shell_metadata>"
-      }
-      return {
-        title: input.description,
-        metadata: {
-          output: last || preview(output),
-          exit: code,
-          description: input.description,
-          truncated: cut,
-          bytesSeen: retained.bytesSeen,
-          bytesRetained: retained.bytesRetained,
-          sha256: retained.sha256,
-          ...(cut && file ? { outputPath: file } : {}),
-        },
-        output,
-      }
+      )
     })
 
     return () =>
@@ -676,7 +654,6 @@ export const ShellTool = Tool.define(
                   cwd,
                   env: yield* shellEnv(ctx, cwd),
                   timeout,
-                  graceMs: budget.graceMs,
                   description: params.description,
                 },
                 ctx,

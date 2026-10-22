@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { ComposerUsage } from "./composer-usage"
 import { publishUsdToCny } from "./cost-currency"
 import { DEFAULT_USD_TO_CNY } from "../settings/settings-preferences"
+import { createSignal } from "solid-js"
 
 afterEach(() => {
   cleanup()
@@ -10,6 +11,23 @@ afterEach(() => {
 })
 
 describe("composer usage", () => {
+  it("keeps the token popover and its focused trigger mounted while streaming usage updates", () => {
+    const usage = (output: number) => ({
+      aggregate: { tokens: { input: 1000, output, reasoning: 0, cache: 0, total: 1000 + output }, cost: 0.01 },
+    })
+    const [metrics, setMetrics] = createSignal(usage(200))
+    render(() => <ComposerUsage metrics={metrics()} />)
+    const breakdown = screen.getByRole("tooltip")
+    const trigger = breakdown.closest<HTMLElement>(".composer-usage__tokens")!
+    trigger.focus()
+    for (let output = 201; output <= 220; output++) {
+      setMetrics(usage(output))
+      expect(screen.getByRole("tooltip")).toBe(breakdown)
+      expect(trigger).toHaveFocus()
+    }
+    expect(breakdown).toHaveTextContent("输出220")
+    expect(breakdown).toHaveTextContent("总计1,220")
+  })
   it("explicitly labels totals for the root and all child agents", () => {
     render(() => (
       <ComposerUsage

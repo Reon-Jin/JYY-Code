@@ -1,7 +1,7 @@
 import { tr } from "../../i18n/i18n-context"
 import type { VcsFileDiff } from "@jyycode-ai/sdk/v2/client"
 import { ChevronDown, ChevronRight, FileCode2, Maximize2 } from "lucide-solid"
-import { createEffect, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { parseUnifiedDiff, firstChangedLine } from "./unified-diff"
 
@@ -22,7 +22,8 @@ export function ChangeFile(props: {
   onToggle: () => void
   onOpenFile?: (change: VcsFileDiff) => void
 }) {
-  const diff = () => (props.expanded ? parseUnifiedDiff(props.change.patch) : undefined)
+  const patch = createMemo(() => props.change.patch)
+  const diff = createMemo(() => (props.expanded ? parseUnifiedDiff(patch()) : undefined))
   let diffElement: HTMLPreElement | undefined
 
   createEffect(() => {
