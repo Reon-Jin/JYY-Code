@@ -46,6 +46,51 @@ const message = (info: UserMessage | AssistantMessage, text: string): Conversati
 })
 
 describe("turn changes", () => {
+  it("prioritizes video, then images, then the file list in a completed mixed-output turn", () => {
+    const mixedDiffs: SnapshotFileDiff[] = [
+      ...diffs.slice(0, 6),
+      ...Array.from({ length: 6 }, (_, i) => ({
+        file: `output/result-${i}.PNG`,
+        additions: 0,
+        deletions: 0,
+        status: "added" as const,
+      })),
+      { file: "output/sound.wav", additions: 0, deletions: 0, status: "added" },
+      { file: "output/clip.mp4", additions: 0, deletions: 0, status: "added" },
+    ]
+    render(() => (
+      <DataProvider
+        bootstrap={{ baseUrl: "http://desktop.test", username: "test", password: "secret" }}
+        directory="C:\\work"
+        generation={0}
+      >
+        <MessageTimeline
+          messages={[
+            message({ ...user, summary: { diffs: mixedDiffs } }, "generate outputs"),
+            message(assistant, "done"),
+          ]}
+          running={false}
+        />
+      </DataProvider>
+    ))
+    const card = screen.getByRole("region", { name: "本轮文件变更" })
+    const images = screen.getAllByRole("img")
+    const files = within(card).getByRole("list")
+    const video = card.querySelector("video")!
+    expect(video).toHaveAttribute("controls")
+    expect(video.compareDocumentPosition(images[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(video.compareDocumentPosition(card.querySelector("audio")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(images).toHaveLength(4)
+    expect(images[0]!.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(card).getAllByRole("listitem")).toHaveLength(5)
+    fireEvent.click(screen.getByRole("button", { name: "再显示 9 个文件" }))
+    expect(within(card).getAllByRole("listitem")).toHaveLength(14)
+    expect(screen.getAllByRole("img")).toHaveLength(4)
+    fireEvent.click(screen.getByRole("button", { name: "再显示 2 张图片" }))
+    expect(screen.getAllByRole("img")).toHaveLength(6)
+    fireEvent.click(screen.getByRole("button", { name: "收起图片" }))
+    expect(screen.getAllByRole("img")).toHaveLength(4)
+  })
   it("lists five files, folds the remainder and lets a file expose its own patch", () => {
     render(() => <TurnChanges summary={{ messageID: user.id, changes: diffs }} />)
     const card = screen.getByRole("region", { name: "本轮文件变更" })

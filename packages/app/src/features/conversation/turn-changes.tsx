@@ -104,7 +104,9 @@ export function TurnChanges(props: { summary: TurnChangeSummary }) {
   const images = createMemo(() => mediaChanges().filter((change) => previewKind(change.file) === "image"))
   const imageLimit = () => Math.max(0, 4 - (props.summary.inlineImageCount ?? 0))
   const otherMedia = createMemo(() =>
-    mediaChanges().filter((change) => ["audio", "video"].includes(previewKind(change.file))),
+    mediaChanges()
+      .filter((change) => ["audio", "video"].includes(previewKind(change.file)))
+      .sort((left, right) => Number(previewKind(right.file) === "video") - Number(previewKind(left.file) === "video")),
   )
   const mediaUrl = (file: string) => {
     if (!data) return undefined
@@ -125,6 +127,50 @@ export function TurnChanges(props: { summary: TurnChangeSummary }) {
         when={changes().length > 0}
         fallback={<p class="turn-changes__empty">{tr("conversation.no-file-changes")}</p>}
       >
+        <Show when={data && otherMedia().length > 0}>
+          <div class="turn-changes__media">
+            <For each={showAllMedia() ? otherMedia() : otherMedia().slice(0, 5)}>
+              {(change) => (
+                <MediaPreview
+                  kind={previewKind(change.file) === "audio" ? "audio" : "video"}
+                  name={change.file}
+                  src={mediaUrl(change.file)}
+                />
+              )}
+            </For>
+          </div>
+          <Show when={otherMedia().length > 5}>
+            <button
+              type="button"
+              class="turn-changes__more"
+              aria-expanded={showAllMedia()}
+              onClick={() => setShowAllMedia((value) => !value)}
+            >
+              {showAllMedia()
+                ? tr("conversation.collapse-media")
+                : tr("conversation.more-media", { count: otherMedia().length - 5 })}
+            </button>
+          </Show>
+        </Show>
+        <Show when={data && images().length > 0}>
+          <div class="turn-changes__images">
+            <For each={showAllImages() ? images() : images().slice(0, imageLimit())}>
+              {(change) => <MediaPreview kind="image" name={change.file} src={mediaUrl(change.file)} />}
+            </For>
+          </div>
+          <Show when={images().length > imageLimit()}>
+            <button
+              type="button"
+              class="turn-changes__more"
+              aria-expanded={showAllImages()}
+              onClick={() => setShowAllImages((value) => !value)}
+            >
+              {showAllImages()
+                ? tr("conversation.collapse-images")
+                : tr("conversation.more-images", { count: images().length - imageLimit() })}
+            </button>
+          </Show>
+        </Show>
         <header class="turn-changes__header">
           <FileDiff aria-hidden="true" />
           <div>
@@ -175,50 +221,6 @@ export function TurnChanges(props: { summary: TurnChangeSummary }) {
               <ChevronUp aria-hidden="true" />
             </Show>
           </button>
-        </Show>
-        <Show when={data && images().length > 0}>
-          <div class="turn-changes__images">
-            <For each={showAllImages() ? images() : images().slice(0, imageLimit())}>
-              {(change) => <MediaPreview kind="image" name={change.file} src={mediaUrl(change.file)} />}
-            </For>
-          </div>
-          <Show when={images().length > imageLimit()}>
-            <button
-              type="button"
-              class="turn-changes__more"
-              aria-expanded={showAllImages()}
-              onClick={() => setShowAllImages((value) => !value)}
-            >
-              {showAllImages()
-                ? tr("conversation.collapse-images")
-                : tr("conversation.more-images", { count: images().length - imageLimit() })}
-            </button>
-          </Show>
-        </Show>
-        <Show when={data && otherMedia().length > 0}>
-          <div class="turn-changes__media">
-            <For each={showAllMedia() ? otherMedia() : otherMedia().slice(0, 5)}>
-              {(change) => (
-                <MediaPreview
-                  kind={previewKind(change.file) === "audio" ? "audio" : "video"}
-                  name={change.file}
-                  src={mediaUrl(change.file)}
-                />
-              )}
-            </For>
-          </div>
-          <Show when={otherMedia().length > 5}>
-            <button
-              type="button"
-              class="turn-changes__more"
-              aria-expanded={showAllMedia()}
-              onClick={() => setShowAllMedia((value) => !value)}
-            >
-              {showAllMedia()
-                ? tr("conversation.collapse-media")
-                : tr("conversation.more-media", { count: otherMedia().length - 5 })}
-            </button>
-          </Show>
         </Show>
       </Show>
     </section>
