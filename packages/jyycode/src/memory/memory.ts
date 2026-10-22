@@ -6,7 +6,7 @@ import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import { Session } from "@/session/session"
-import { SessionID } from "@/session/schema"
+import { MessageID, SessionID } from "@/session/schema"
 import { MessageV2 } from "@/session/message-v2"
 import * as Log from "@jyycode-ai/core/util/log"
 import {
@@ -17,7 +17,7 @@ import {
   EXPERIENCE_KINDS,
 } from "./experience-schema"
 import type { ExperienceCandidate, ExperienceConfidence, ExperienceKind } from "./experience-schema"
-import { LEGACY_MEMORY_DIRECTORY, MEMORY_DIRECTORY } from "./runtime-path"
+import { LEGACY_MEMORY_DIRECTORY, MEMORY_DIRECTORY, workspaceIDForRoot } from "./runtime-path"
 import { looksSensitive, sanitizeForPersistence } from "./sanitize"
 export type { ExperienceCandidate } from "./experience-schema"
 const log = Log.create({ service: "memory" })
@@ -305,8 +305,9 @@ type MemoryWriteInput = {
   source?: string
 }
 
-export type TaskMemoryUpsertInput = Omit<TaskMemoryEntry, "scope" | "date">
-export type UserMemoryUpsertInput = Omit<UserMemoryEntry, "scope"> & { sessionID: SessionID }
+type TurnGuard = { expectedUserMessageID?: MessageID; expectedAssistantMessageID?: MessageID }
+export type TaskMemoryUpsertInput = Omit<TaskMemoryEntry, "scope" | "date"> & TurnGuard
+export type UserMemoryUpsertInput = Omit<UserMemoryEntry, "scope"> & { sessionID: SessionID } & TurnGuard
 
 export type MemoryCandidate = {
   importance: Importance
@@ -334,6 +335,8 @@ export type DecisionInput = {
   userText: string
   assistantText: string
   failureHint?: string
+  history?: MessageV2.WithParts[]
+  userMessageID?: MessageID
 }
 
 export type DecisionEvaluator = (input: DecisionInput) => Effect.Effect<unknown, unknown>
@@ -342,10 +345,13 @@ export type TurnText = {
   userText?: string
   assistantText?: string
   failureHint?: string
+  userMessageID?: MessageID
+  assistantMessageID?: MessageID
+  history?: MessageV2.WithParts[]
 }
 
 export type AutomaticUpdateResult =
-  | { status: "skipped"; reason: "subagent" | "no_user" | "no_assistant" }
+  | { status: "skipped"; reason: "subagent" | "no_user" | "no_assistant" | "stale" }
   | { status: "updated"; taskUpdated: boolean; userUpdated: number; experienceCandidates: ExperienceCandidate[] }
 
 export const MemoryDecisionJsonSchema = {
@@ -389,7 +395,7 @@ export const MemoryDecisionJsonSchema = {
 export type MutationResult = {
   id?: string
   file?: string
-  status: "written" | "duplicate" | "replaced" | "removed" | "compacted" | "capacity_rejected"
+  status: "written" | "duplicate" | "replaced" | "removed" | "compacted" | "capacity_rejected" | "stale"
   message: string
 }
 
@@ -419,6 +425,7 @@ export type MemoryMigrationResult = {
 }
 
 export interface Interface {
+  readonly contextSnapshot?: (sessionID: SessionID) => Effect.Effect<{ text: string; keywords: string[]; content?: string }, Error>
   readonly dir: (sessionID: SessionID) => Effect.Effect<string>
   /** Resolve the project key that a session belongs to for project-scoped task memory views. */
   readonly resolveProjectID: (sessionID: SessionID) => Effect.Effect<string>
@@ -499,7 +506,12 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
 
       const resolveProjectID = Effect.fn("Memory.resolveProjectID")(function* (sessionID: SessionID) {
         const session = yield* sessions.get(sessionID).pipe(Effect.option)
-        if (Option.isSome(session) && session.value.projectID) return session.value.projectID
+        if (Option.isSome(session) && session.value.projectID) {
+          if (session.value.projectID === "global") {
+            return session.value.directory ? `workspace:${workspaceIDForRoot(session.value.directory)}` : String(sessionID)
+          }
+          return session.value.projectID
+        }
         return String(sessionID)
       })
 
@@ -519,7 +531,8 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
           { discard: true },
         )
 
-      const ensure = Effect.fn("Memory.ensure")(function* (sessionID: SessionID) {
+      const initialize = yield* Effect.cached(flock.withLock(Effect.gen(function* () {
+        const sessionID = SessionID.make("ses_memory_initialize")
         const memoryDir = yield* dir(sessionID)
         yield* fs.ensureDir(memoryDir).pipe(Effect.orDie)
         for (const scope of ["memory", "user"] as const) {
@@ -535,7 +548,8 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
         }
         // Clean up legacy .md files from the old memory system.
         yield* cleanupLegacyMdFiles(memoryDir)
-      })
+      }), path.join(memoryDirectory, ".initialize")))
+      const ensure = (_sessionID: SessionID) => initialize
 
       const readFull = Effect.fn("Memory.readFull")(function* (sessionID: SessionID, scope: Scope) {
         yield* ensure(sessionID)
@@ -548,9 +562,9 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
         const migrated: MemoryEntry[] = []
         for (const entry of store.entries) {
           let next = entry
-          if (entry.scope === "memory" && !entry.projectID) {
+          if (entry.scope === "memory" && (!entry.projectID || entry.projectID === "global")) {
             const projectID = yield* resolveProjectID(entry.sessionID)
-            if (projectID !== String(entry.sessionID)) next = { ...entry, projectID }
+            next = { ...entry, projectID }
           }
           const key = entryKey(next)
           const existing = migrated.findIndex((candidate) => entryKey(candidate) === key)
@@ -560,10 +574,18 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
         return { ...store, entries: migrated }
       })
 
+      const parsedStores = new Map<Scope, { text: string; store: MemoryStore }>()
       const readStore = Effect.fn("Memory.readStore")(function* (sessionID: SessionID, scope: Scope) {
         const text = yield* readFull(sessionID, scope)
-        const store = yield* Effect.try({ try: () => parseStore(scope, text), catch: (error) => asError(error) })
-        const safe = { ...store, entries: store.entries.map(sanitizeMemoryEntry) }
+        const cached = parsedStores.get(scope)
+        const safe = cached?.text === text ? cached.store : yield* Effect.try({
+          try: () => {
+            const store = parseStore(scope, text)
+            return { ...store, entries: store.entries.map(sanitizeMemoryEntry) }
+          },
+          catch: (error) => asError(error),
+        })
+        parsedStores.set(scope, { text, store: safe })
         if (scope !== "memory") return safe
         return yield* migrateTaskProjectKeys(safe)
       })
@@ -656,9 +678,21 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
         )
       })
 
+      const isCurrentTurn = Effect.fn("Memory.isCurrentTurn")(function* (sessionID: SessionID, expected?: MessageID, assistantID?: MessageID) {
+        if (!expected) return true
+        const history = yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
+        const latest = history.findLast((message) => message.info.role === "user" && message.parts.some((part) =>
+          (part.type === "text" && !part.synthetic) || part.type === "file" || part.type === "agent" || part.type === "subtask",
+        ))
+        const latestAssistant = assistantID ? history.findLast((message) => message.info.role === "assistant" && !message.info.summary) : undefined
+        return latest?.info.id === expected && (!assistantID || latestAssistant?.info.id === assistantID)
+      })
+
       const upsertStructured = Effect.fn("Memory.upsertStructured")(function* (
         sessionID: SessionID,
         candidate: MemoryEntry,
+        expectedUserMessageID?: MessageID,
+        expectedAssistantMessageID?: MessageID,
       ) {
         yield* assertPrimaryWriter(sessionID)
         yield* ensure(sessionID)
@@ -666,6 +700,9 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
         const targetFile = yield* filePath(sessionID, scope)
         return yield* flock.withLock(
           Effect.gen(function* () {
+            if (!(yield* isCurrentTurn(sessionID, expectedUserMessageID, expectedAssistantMessageID))) {
+              return { status: "stale" as const, message: "Newer user turn superseded this memory update." }
+            }
             const store = yield* readStore(sessionID, scope)
             const deduplicated = scope === "user" ? deduplicateStoredUserEntries(store.entries) : null
             const entries = deduplicated ? [...deduplicated.entries] : [...store.entries]
@@ -777,7 +814,7 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
           content,
           projectID,
           sessionID: input.sessionID,
-        })
+        }, input.expectedUserMessageID, input.expectedAssistantMessageID)
       })
 
       const upsertUserMemory = Effect.fn("Memory.upsertUserMemory")(function* (input: UserMemoryUpsertInput) {
@@ -787,7 +824,7 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
           date: localDate(new Date()),
           keywords: input.keywords,
           content: input.content,
-        })
+        }, input.expectedUserMessageID, input.expectedAssistantMessageID)
       })
 
       const write = Effect.fn("Memory.write")(function* (input: MemoryWriteInput) {
@@ -1126,12 +1163,9 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
         return computeUsage(serializeStore(scope, store.entries, store.lastCompactedAt), scope)
       })
 
-      const formatWithHeader = Effect.fn("Memory.formatWithHeader")(function* (sessionID: SessionID, scope: Scope) {
-        yield* ensure(sessionID)
-        const store = yield* readStore(sessionID, scope)
+      const formatStore = (store: MemoryStore, sessionID: SessionID, scope: Scope, projectID?: string) => {
         const safeEntries = store.entries.map(sanitizeMemoryEntry)
         const serialized = serializeStore(scope, safeEntries, store.lastCompactedAt)
-        const projectID = scope === "memory" ? yield* resolveProjectID(sessionID) : undefined
         let text = formatEntries(
           selectSnapshotEntries(safeEntries, scope, sessionID, projectID),
           scope === "memory" ? sessionID : undefined,
@@ -1139,6 +1173,22 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
         const limit = scope === "user" ? USER_SNAPSHOT_MAX_CHARS : MEMORY_SNAPSHOT_MAX_CHARS
         if (text.length > limit) text = `${text.slice(0, limit - 1)}…\n`
         return formatMemoryHeader(scope, serialized) + text
+      }
+
+      const formatWithHeader = Effect.fn("Memory.formatWithHeader")(function* (sessionID: SessionID, scope: Scope) {
+        const store = yield* readStore(sessionID, scope)
+        return formatStore(store, sessionID, scope, scope === "memory" ? yield* resolveProjectID(sessionID) : undefined)
+      })
+
+      const contextSnapshot = Effect.fn("Memory.contextSnapshot")(function* (sessionID: SessionID) {
+        const [task, user, projectID] = yield* Effect.all([
+          readStore(sessionID, "memory"), readStore(sessionID, "user"), resolveProjectID(sessionID),
+        ])
+        const entry = task.entries.find((entry) => entry.scope === "memory" && entry.sessionID === sessionID)
+        return {
+          text: [formatStore(task, sessionID, "memory", projectID), formatStore(user, sessionID, "user")].join("\n"),
+          keywords: entry?.keywords ?? [], content: entry?.content,
+        }
       })
 
       const currentTaskKeywords = Effect.fn("Memory.currentTaskKeywords")(function* (sessionID: SessionID) {
@@ -1221,13 +1271,14 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
         yield* ensure(sessionID)
         const suppliedUserText = sanitizeContent(turn?.userText ?? "")
         const suppliedAssistantText = sanitizeContent(turn?.assistantText ?? "")
-        const msgs =
-          suppliedUserText && suppliedAssistantText ? [] : yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
+        const msgs = turn?.history ??
+          (suppliedUserText && suppliedAssistantText ? [] : yield* sessions.messages({ sessionID }).pipe(Effect.orDie))
         const userText = suppliedUserText || latestRealMessageText(msgs, "user")
         if (!userText) return { status: "skipped" as const, reason: "no_user" as const }
         // Find the chronologically last assistant message with non-synthetic text.
         const assistantText = suppliedAssistantText || latestRealMessageText(msgs, "assistant")
         if (!assistantText) return { status: "skipped" as const, reason: "no_assistant" as const }
+        if (!(yield* isCurrentTurn(sessionID, turn?.userMessageID, turn?.assistantMessageID))) return { status: "skipped" as const, reason: "stale" as const }
 
         const decision = yield* evaluateSemanticUpdate(evaluator, {
           sessionID,
@@ -1237,13 +1288,16 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
           userText,
           assistantText,
           failureHint: turn?.failureHint,
+          history: turn?.history,
+          userMessageID: turn?.userMessageID,
         })
-        const taskResult = yield* upsertTaskMemory({ sessionID, ...decision.task })
+        const taskResult = yield* upsertTaskMemory({ sessionID, ...decision.task, expectedUserMessageID: turn?.userMessageID, expectedAssistantMessageID: turn?.assistantMessageID })
+        if (taskResult.status === "stale") return { status: "skipped" as const, reason: "stale" as const }
         if (taskResult.status === "capacity_rejected") {
           return yield* Effect.fail(new Error("Mandatory semantic task memory update was rejected at capacity"))
         }
         const userResults = yield* Effect.forEach(decision.user, (candidate) =>
-          upsertUserMemory({ sessionID, ...candidate }),
+          upsertUserMemory({ sessionID, ...candidate, expectedUserMessageID: turn?.userMessageID, expectedAssistantMessageID: turn?.assistantMessageID }),
         )
         yield* audit(sessionID, {
           writerSessionID: sessionID,
@@ -1283,6 +1337,7 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
         const msgs = suppliedUserText ? [] : yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
         const userText = suppliedUserText || latestRealMessageText(msgs, "user")
         if (!userText) return { status: "skipped" as const, reason: "no_user" as const }
+        if (!(yield* isCurrentTurn(sessionID, suppliedTurn?.userMessageID))) return { status: "skipped" as const, reason: "stale" as const }
 
         const decision = yield* evaluateSemanticUpdate(evaluator, {
           sessionID,
@@ -1292,13 +1347,16 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
           userText,
           assistantText: "",
           failureHint: suppliedTurn?.failureHint,
+          history: suppliedTurn?.history,
+          userMessageID: suppliedTurn?.userMessageID,
         })
-        const taskResult = yield* upsertTaskMemory({ sessionID, ...decision.task })
+        const taskResult = yield* upsertTaskMemory({ sessionID, ...decision.task, expectedUserMessageID: suppliedTurn?.userMessageID })
+        if (taskResult.status === "stale") return { status: "skipped" as const, reason: "stale" as const }
         if (taskResult.status === "capacity_rejected") {
           return yield* Effect.fail(new Error("Mandatory semantic task memory update was rejected at capacity"))
         }
         const userResults = yield* Effect.forEach(decision.user, (candidate) =>
-          upsertUserMemory({ sessionID, ...candidate }),
+          upsertUserMemory({ sessionID, ...candidate, expectedUserMessageID: suppliedTurn?.userMessageID }),
         )
         yield* audit(sessionID, {
           writerSessionID: sessionID,
@@ -1336,6 +1394,7 @@ export const layerWithDirectory = (directory: string, _options?: { legacyDirecto
       })
 
       return Service.of({
+        contextSnapshot,
         dir,
         resolveProjectID,
         ensure,
@@ -1410,7 +1469,10 @@ function compactEntrySet(store: MemoryStore, scope: Scope, source: readonly Memo
   }
 
   for (let index = 0; index < entries.length; index++) {
-    entries[index] = { ...entries[index]!, content: refineContent(entries[index]!.content) }
+    const entry = entries[index]!
+    // Task fields are already bounded independently. Never truncate the whole
+    // structured entry: doing so loses progress/lesson fields and their delimiters.
+    entries[index] = { ...entry, content: entry.scope === "memory" ? entry.content : refineContent(entry.content) }
   }
 
   const targetChars = Math.floor(charLimit(scope) * COMPACTION_TARGET)

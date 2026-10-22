@@ -11,12 +11,8 @@ export const LEGACY_EXPERIENCE_DIRECTORY = MEMORY_DIRECTORY
 
 export function normalizeWorkspaceRoot(root: string): string {
   const resolved = path.resolve(root.trim() || path.parse(process.cwd()).root)
-  return (
-    path
-      .normalize(resolved)
-      .replace(/[\\/]+$/u, "")
-      .toLowerCase() || path.parse(resolved).root.toLowerCase()
-  )
+  const normalized = path.normalize(resolved).replace(/[\\/]+$/u, "") || path.parse(resolved).root
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized
 }
 
 /** Stable, provider-safe identifier for a workspace-scoped persistence directory. */

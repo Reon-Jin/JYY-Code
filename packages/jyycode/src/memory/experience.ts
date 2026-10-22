@@ -389,58 +389,8 @@ export const layerWithDirectory = (directory: string, options: { legacyDirectory
               yield* appendAudit(sessionID, { action: "memory.experience.duplicate", key }, workspaceRoot)
               return { status: "duplicate" as const, key, message: "Duplicate experience already exists." }
             }
-            const cluster = entries.flatMap((existing, index) =>
-              existing.status === "active" && experienceClusterMatch(existing, entry) ? [index] : [],
-            )
-            const opposite = cluster.find((index) => oppositeExperienceKind(entries[index]!, entry))
-            if (opposite !== undefined) {
-              const old = entries[opposite]!
-              entries[opposite] = {
-                ...old,
-                status: "superseded",
-                supersededReason: `Outcome reversed by ${sessionID} on ${entry.updatedAt}: ${entry.content.slice(0, 80)}`,
-              }
-              entries.push(entry)
-              yield* writeStore(sessionID, { ...store, entries }, workspaceRoot)
-              yield* appendAudit(
-                sessionID,
-                {
-                  action: "memory.experience.superseded",
-                  key,
-                  oldKey: experienceKey(old),
-                },
-                workspaceRoot,
-              )
-              return {
-                status: "superseded" as const,
-                key,
-                message: "New experience superseded the opposite earlier lesson.",
-              }
-            }
-            const sameKind = cluster.filter(
-              (index) => entries[index]!.kind === entry.kind && entries[index]!.sessionID === sessionID,
-            )
-            if (sameKind.length > 0) {
-              let merged = entry
-              for (const index of sameKind) merged = mergeExperienceEntries(merged, entries[index]!)
-              entries[sameKind[0]!] = merged
-              for (const index of sameKind.slice(1).reverse()) entries.splice(index, 1)
-              yield* writeStore(sessionID, { ...store, entries }, workspaceRoot)
-              yield* appendAudit(
-                sessionID,
-                {
-                  action: "memory.experience.merged",
-                  key,
-                  merged: sameKind.length,
-                },
-                workspaceRoot,
-              )
-              return {
-                status: "merged" as const,
-                key: experienceKey(merged),
-                message: "Merged with a same-session experience.",
-              }
-            }
+            // Keywords are retrieval hints, not proof that rules are equivalent
+            // or contradictory. Preserve distinct lessons and their evidence.
             entries.push(entry)
             const projected = serializeExperienceStore(entries, store.lastMaintainedAt)
             if (projected.length > EXPERIENCE_CHAR_LIMIT || entries.length > EXPERIENCE_ENTRY_LIMIT) {
@@ -602,7 +552,7 @@ export const layerWithDirectory = (directory: string, options: { legacyDirectory
               removed: outcome.removed,
               merged: outcome.merged,
               retained: outcome.entries.length,
-            })
+            }, workspaceRoot)
             return { removed: outcome.removed, merged: outcome.merged, retained: outcome.entries.length }
           }),
           target,

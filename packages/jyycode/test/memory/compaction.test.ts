@@ -67,6 +67,17 @@ function user(
 }
 
 describe("bounded deterministic memory compaction", () => {
+  test("still merges related sessions in one project without truncating structured task fields", async () => {
+    const { run, seed, read } = await fixture()
+    const content = `当前任务：${"实现登录流程".repeat(12)}；进展：${"已完成权限校验".repeat(12)}；经验：登录异常要保留原始错误信息`
+    await seed("memory", [task({ id: "ses_same_a", content }), task({ id: "ses_same_b", content })])
+    const result = await run(Memory.Service.use((memory) => memory.compact({ sessionID: writer, scope: "memory" })))
+    expect(result.merged).toBe(1)
+    const stored = await read("memory")
+    expect(stored.entries).toHaveLength(1)
+    expect(stored.entries[0]?.content).toBe(content)
+    expect(stored.entries[0]?.content).not.toContain("…")
+  })
   test("keeps task entries from different projects separate during compaction", async () => {
     const { run, seed, read } = await fixture()
     const entries = [

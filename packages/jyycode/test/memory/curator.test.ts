@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
-import { Effect, Layer } from "effect"
+import { Deferred, Effect, Fiber, Layer } from "effect"
 import { Memory } from "@/memory/memory"
 import { MessageV2 } from "@/session/message-v2"
 import { Session } from "@/session/session"
@@ -102,6 +102,30 @@ function fixture(input?: { parentID?: SessionID; multiAgent?: boolean; projectID
 }
 
 describe("two-phase semantic memory curator", () => {
+  test("discards a slow earlier turn after a newer turn has updated memory", async () => {
+    const ctx = fixture()
+    const oldHistory = messages("旧请求", "旧回复", "old")
+    ctx.setMessages(oldHistory)
+    await ctx.run(Effect.gen(function* () {
+      const started = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const memory = yield* Memory.Service
+      const old = yield* memory.updateAfterTurn(sessionID, () => Effect.gen(function* () {
+        yield* Deferred.succeed(started, undefined)
+        yield* Deferred.await(release)
+        return decision("当前任务：旧任务；进展：过期结果")
+      }), { userText: "旧请求", assistantText: "旧回复", history: oldHistory, userMessageID: oldHistory[0]!.info.id }).pipe(Effect.forkChild)
+      yield* Deferred.await(started)
+      const newHistory = messages("新请求", "新回复", "new")
+      ctx.setMessages([...oldHistory, ...newHistory])
+      yield* memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("当前任务：新任务；进展：最新状态")), {
+        userText: "新请求", assistantText: "新回复", history: newHistory, userMessageID: newHistory[0]!.info.id,
+      })
+      yield* Deferred.succeed(release, undefined)
+      expect(yield* Fiber.join(old)).toEqual({ status: "skipped", reason: "stale" })
+      expect(yield* memory.currentTaskContent(sessionID)).toBe("当前任务：新任务；进展：最新状态")
+    }))
+  })
   test("uses the LLM to store a semantic user summary immediately after a prompt", async () => {
     const ctx = fixture()
     const longPrompt = `${"背景信息。".repeat(80)}最终要求是完成赛车游戏的碰撞系统。`

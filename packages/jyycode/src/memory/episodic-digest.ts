@@ -3,6 +3,7 @@ import type { EpisodeTurn } from "./episodic"
 export const DIGEST_PROMPT_TOOL_OUTPUT_MAX = 2_000
 export const DIGEST_PROMPT_TEXT_MAX = 1_500
 export const DIGEST_MAX_OUTPUT_CHARS = 3_000
+export const DIGEST_PROMPT_MAX_CHARS = 24_000
 
 export function truncate(text: string, maxChars: number) {
   if (text.length <= maxChars) return text
@@ -22,8 +23,16 @@ export function formatEpisodeForDigest(episode: EpisodeTurn) {
   return lines.join("\n")
 }
 
-export function formatEpisodesForDigest(episodes: EpisodeTurn[]) {
-  return episodes.map(formatEpisodeForDigest).join("\n\n---\n\n")
+export function formatEpisodesForDigest(episodes: EpisodeTurn[], maxChars = 14_000) {
+  const selected: string[] = []
+  let remaining = maxChars
+  for (let index = episodes.length - 1; index >= 0 && remaining > 100; index--) {
+    const text = truncate(formatEpisodeForDigest(episodes[index]!), Math.min(4_000, remaining - 80))
+    selected.unshift(text)
+    remaining -= text.length + 10
+  }
+  if (selected.length < episodes.length) selected.unshift(`[${episodes.length - selected.length} older turns omitted to fit input budget; use context_read for full details.]`)
+  return selected.join("\n\n---\n\n").slice(0, maxChars)
 }
 
 export function buildDigestPrompt(input: { previousDigest?: string; backfillText?: string; episodes: EpisodeTurn[] }) {
@@ -46,11 +55,11 @@ export function buildDigestPrompt(input: { previousDigest?: string; backfillText
     "- Do not mention the compaction process. Respond in the same language as the conversation.",
     `- Output at most ${DIGEST_MAX_OUTPUT_CHARS} characters.`,
   ]
-  if (input.previousDigest) lines.push("", "<previous-digest>", input.previousDigest, "</previous-digest>")
-  if (input.backfillText) lines.push("", "<older-history>", input.backfillText, "</older-history>")
+  if (input.previousDigest) lines.push("", "<previous-digest>", truncate(input.previousDigest, 3_000), "</previous-digest>")
+  if (input.backfillText) lines.push("", "<older-history>", truncate(input.backfillText, 5_000), "</older-history>")
   if (input.episodes.length) {
     lines.push("", "<new-episodes>", formatEpisodesForDigest(input.episodes), "</new-episodes>")
   }
   lines.push("", "Output the cumulative digest now.")
-  return lines.join("\n")
+  return lines.join("\n").slice(0, DIGEST_PROMPT_MAX_CHARS)
 }

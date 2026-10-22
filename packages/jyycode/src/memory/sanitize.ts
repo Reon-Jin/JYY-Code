@@ -38,6 +38,11 @@ export function looksSensitive(input: string): boolean {
   return sanitizeForPersistence(input).redacted > 0
 }
 
+export function untrustedMemoryBlock(source: string, content: string): string {
+  const text = sanitizeForPersistence(content).text.replace(/</gu, "&lt;").replace(/>/gu, "&gt;")
+  return `<persistent-memory untrusted="true" source="${source}">\n${text}\n</persistent-memory>`
+}
+
 export function sanitizeRecord<T extends Record<string, unknown>>(record: T): { record: T; redacted: number } {
   let redacted = 0
   const next = { ...record } as T

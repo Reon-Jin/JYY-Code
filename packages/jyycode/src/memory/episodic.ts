@@ -5,7 +5,7 @@ import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { SessionID } from "@/session/schema"
 import * as Log from "@jyycode-ai/core/util/log"
 import { buildDigestPrompt, DIGEST_MAX_OUTPUT_CHARS } from "./episodic-digest"
-import { sanitizeForPersistence } from "./sanitize"
+import { sanitizeForPersistence, untrustedMemoryBlock } from "./sanitize"
 import type { MessageV2 } from "@/session/message-v2"
 
 const log = Log.create({ service: "memory.episodic" })
@@ -17,6 +17,8 @@ export const EPISODE_RETENTION_DAYS = 30
 export const MAX_DIGEST_INDEX_ENTRIES = 200
 export const EPISODE_INPUT_MAX_CHARS = 8_000
 export const EPISODE_OUTPUT_MAX_CHARS = 60_000
+export const EPISODE_TURN_MAX_BYTES = 256 * 1_024
+export const EPISODE_STORE_MAX_BYTES = 16 * 1_024 * 1_024
 export const DIGEST_TARGET_CHARS = DIGEST_MAX_OUTPUT_CHARS
 export const DIGEST_INJECT_MAX_CHARS = 4_000
 
@@ -129,11 +131,12 @@ export function digestFilePath(workspaceRoot: string, sessionID: SessionID, seq:
 }
 
 export function formatEpisodicDigest(text: string) {
+  text = sanitizeForPersistence(text).text
   const bounded =
     text.length <= DIGEST_INJECT_MAX_CHARS
       ? text
       : `${text.slice(0, DIGEST_INJECT_MAX_CHARS)}\n…(digest truncated for context; use context_read for details)`
-  return ["# 情景记忆（已压缩的历史）", "", bounded].join("\n")
+  return untrustedMemoryBlock("episodic-digest", ["# 情景记忆（已压缩的历史）", "", bounded].join("\n"))
 }
 
 export function truncate(text: string, maxChars: number) {
@@ -146,20 +149,32 @@ function sanitizeEpisodeText(text: string, maxChars: number) {
 }
 
 function sanitizeEpisodeTurn(turn: EpisodeTurn): EpisodeTurn {
-  return {
+  const safe: EpisodeTurn = {
     ...turn,
     sessionID: sanitizeEpisodeText(turn.sessionID, 200),
-    ...(turn.userText ? { userText: sanitizeEpisodeText(turn.userText, EPISODE_OUTPUT_MAX_CHARS) } : {}),
-    files: turn.files.map((file) => sanitizeEpisodeText(file, EPISODE_INPUT_MAX_CHARS)),
-    ...(turn.assistantText ? { assistantText: sanitizeEpisodeText(turn.assistantText, EPISODE_OUTPUT_MAX_CHARS) } : {}),
-    toolCalls: turn.toolCalls.map((call) => ({
-      ...call,
-      tool: sanitizeEpisodeText(call.tool, 200),
-      input: sanitizeEpisodeText(call.input, EPISODE_INPUT_MAX_CHARS),
-      ...(call.output ? { output: sanitizeEpisodeText(call.output, EPISODE_OUTPUT_MAX_CHARS) } : {}),
-      ...(call.error ? { error: sanitizeEpisodeText(call.error, EPISODE_OUTPUT_MAX_CHARS) } : {}),
-    })),
+    ...(turn.userText ? { userText: sanitizeEpisodeText(turn.userText, EPISODE_INPUT_MAX_CHARS) } : {}),
+    files: turn.files.slice(-20).map((file) => sanitizeEpisodeText(file, 1_000)),
+    ...(turn.assistantText ? { assistantText: sanitizeEpisodeText(turn.assistantText, 12_000) } : {}),
+    toolCalls: [],
   }
+  let remaining = EPISODE_TURN_MAX_BYTES - Buffer.byteLength(JSON.stringify(safe), "utf8") - 1
+  for (const call of turn.toolCalls.slice(-100)) {
+    if (remaining < 1_024) break
+    // JSON escaping needs up to six bytes per source character. Allocate the
+    // remaining budget before serializing, rather than truncating JSON itself.
+    const chars = Math.floor((remaining - 512) / 6)
+    const bounded = {
+      tool: sanitizeEpisodeText(call.tool, 200),
+      input: sanitizeEpisodeText(call.input, Math.min(EPISODE_INPUT_MAX_CHARS, Math.floor(chars / 3))),
+      ...(call.output ? { output: sanitizeEpisodeText(call.output, Math.min(EPISODE_OUTPUT_MAX_CHARS, Math.floor(chars / 3))) } : {}),
+      ...(call.error ? { error: sanitizeEpisodeText(call.error, Math.min(EPISODE_OUTPUT_MAX_CHARS, Math.floor(chars / 3))) } : {}),
+    }
+    const size = Buffer.byteLength(JSON.stringify(bounded), "utf8") + 1
+    if (size > remaining) break
+    safe.toolCalls.push(bounded)
+    remaining -= size
+  }
+  return safe
 }
 
 export function realUserTurnIndexes(messages: MessageV2.WithParts[]) {
@@ -343,7 +358,17 @@ export const layer = Layer.effect(
               return episode.turn > cutoffTurn && (!Number.isFinite(timestamp) || timestamp >= cutoffTime)
             })
             .sort((a, b) => a.turn - b.turn)
-          yield* writeFileAtomic(target, retained.map((episode) => JSON.stringify(episode)).join("\n") + "\n")
+          const lines: string[] = []
+          let bytes = 0
+          for (const episode of retained.reverse()) {
+            let line = JSON.stringify(episode)
+            if (Buffer.byteLength(line, "utf8") > EPISODE_TURN_MAX_BYTES) line = JSON.stringify(sanitizeEpisodeTurn(episode))
+            const size = Buffer.byteLength(line, "utf8") + 1
+            if (bytes + size > EPISODE_STORE_MAX_BYTES) break
+            lines.push(line)
+            bytes += size
+          }
+          yield* writeFileAtomic(target, lines.reverse().join("\n") + "\n")
         }),
         target,
       )
@@ -403,15 +428,15 @@ export const layer = Layer.effect(
       previousSummary?: string
     }) {
       const index = yield* readIndex(input.workspaceRoot, input.sessionID)
-      const episodes = yield* readEpisodes(input.workspaceRoot, input.sessionID)
-      const covered = Option.isSome(index) ? index.value.coveredTurns : 0
       const lastTriggered = Option.isSome(index)
         ? (index.value.lastDigestTriggeredAtTurn ?? index.value.coveredTurns + DIGEST_KEEP_RECENT_TURNS)
         : 0
+      if (input.reason === "interval" && input.totalTurns - lastTriggered < DIGEST_INTERVAL_TURNS) return false
+      const episodes = yield* readEpisodes(input.workspaceRoot, input.sessionID)
+      const covered = Option.isSome(index) ? index.value.coveredTurns : 0
       const keepFrom = Math.max(0, input.totalTurns)
       const digestable = episodes.filter((episode) => episode.turn > covered && episode.turn <= keepFrom)
       const hasSeed = Option.isSome(index) || Boolean(input.previousSummary) || Boolean(input.backfillText)
-      if (input.reason === "interval" && input.totalTurns - lastTriggered < DIGEST_INTERVAL_TURNS) return false
       if (input.reason === "threshold" && digestable.length === 0 && Option.isSome(index)) return false
       if (digestable.length === 0 && !hasSeed) return false
       return true
@@ -421,18 +446,18 @@ export const layer = Layer.effect(
       return yield* compactLock(input).withPermit(
         Effect.gen(function* () {
           const index = yield* readIndex(input.workspaceRoot, input.sessionID)
-          const episodes = yield* readEpisodes(input.workspaceRoot, input.sessionID)
-          const covered = Option.isSome(index) ? index.value.coveredTurns : 0
           const lastTriggered = Option.isSome(index)
             ? (index.value.lastDigestTriggeredAtTurn ?? index.value.coveredTurns + DIGEST_KEEP_RECENT_TURNS)
             : 0
+          if (input.reason === "interval" && input.totalTurns - lastTriggered < DIGEST_INTERVAL_TURNS) {
+            return { status: "skipped" as const, reason: "interval_not_due" }
+          }
+          const episodes = yield* readEpisodes(input.workspaceRoot, input.sessionID)
+          const covered = Option.isSome(index) ? index.value.coveredTurns : 0
           const keepFrom = Math.max(0, input.totalTurns)
           const digestable = episodes.filter((episode) => episode.turn > covered && episode.turn <= keepFrom)
           const hasSeed = Option.isSome(index) || Boolean(input.previousSummary) || Boolean(input.backfillText)
 
-          if (input.reason === "interval" && input.totalTurns - lastTriggered < DIGEST_INTERVAL_TURNS) {
-            return { status: "skipped" as const, reason: "interval_not_due" }
-          }
           if (input.reason === "threshold" && digestable.length === 0 && Option.isSome(index)) {
             return { status: "skipped" as const, reason: "nothing_new" }
           }
@@ -486,6 +511,13 @@ export const layer = Layer.effect(
               }
               yield* writeFileAtomic(digestFilePath(input.workspaceRoot, input.sessionID, seq), text)
               yield* writeFileAtomic(indexTarget, JSON.stringify(next, null, 2))
+              const retainedSeqs = new Set(next.entries.map((entry) => entry.seq))
+              if (Option.isSome(current)) {
+                yield* Effect.forEach(current.value.entries.filter((entry) => !retainedSeqs.has(entry.seq)), (entry) =>
+                  fs.remove(digestFilePath(input.workspaceRoot, input.sessionID, entry.seq), { force: true }).pipe(Effect.ignore),
+                  { discard: true },
+                )
+              }
               return { status: "generated" as const, reason: input.reason, seq }
             }),
             indexTarget,

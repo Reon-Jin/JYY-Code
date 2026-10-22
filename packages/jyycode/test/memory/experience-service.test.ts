@@ -82,7 +82,7 @@ describe("experience service", () => {
     })
   })
 
-  test("merges same-session same-kind lessons but keeps cross-session ones", async () => {
+  test("preserves distinct rules and evidence even with the same keywords and kind", async () => {
     await withStore(async (service) => {
       const other = SessionID.make("ses_experience_other")
       const first = await Effect.runPromise(
@@ -99,21 +99,23 @@ describe("experience service", () => {
       )
       const cross = await Effect.runPromise(service.upsert(other, candidate()))
       expect(first.status).toBe("written")
-      expect(second.status).toBe("merged")
+      expect(second.status).toBe("written")
       expect(cross.status).toBe("written")
       const store = await Effect.runPromise(service.readStore(sessionID))
-      expect(store.entries).toHaveLength(2)
+      expect(store.entries).toHaveLength(3)
+      expect(store.entries.map((entry) => entry.evidence)).toContain("[ses_experience#1] ssh")
+      expect(store.entries.map((entry) => entry.evidence)).toContain("[ses_experience#2] ssh -T")
     })
   })
 
-  test("supersedes an opposite outcome on the same keyword cluster", async () => {
+  test("does not treat success and failure on shared keywords as contradictory facts", async () => {
     await withStore(async (service) => {
       await Effect.runPromise(service.upsert(sessionID, candidate({ kind: "success", content: "SSH 直接重试有效" })))
       const result = await Effect.runPromise(service.upsert(sessionID, candidate()))
-      expect(result.status).toBe("superseded")
+      expect(result.status).toBe("written")
       const store = await Effect.runPromise(service.readStore(sessionID))
-      expect(store.entries.filter((entry) => entry.status === "active")).toHaveLength(1)
-      expect(store.entries.filter((entry) => entry.status === "superseded")).toHaveLength(1)
+      expect(store.entries.filter((entry) => entry.status === "active")).toHaveLength(2)
+      expect(store.entries.filter((entry) => entry.status === "superseded")).toHaveLength(0)
     })
   })
 
