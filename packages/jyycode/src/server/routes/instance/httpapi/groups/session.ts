@@ -224,6 +224,7 @@ export const SessionPaths = {
   status: `${root}/status`,
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
+  usage: `${root}/:sessionID/usage`,
   context: `${root}/:sessionID/context`,
   plan: `${root}/:sessionID/plan`,
   blackboard: `${root}/:sessionID/blackboard`,
@@ -303,6 +304,19 @@ export const SessionApi = HttpApi.make("session")
             description: "Retrieve all child sessions that were forked from the specified parent session.",
           }),
         ),
+        HttpApiEndpoint.get("usage", SessionPaths.usage, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(Session.UsageSummary, "Billed usage for the session and every descendant"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.usage",
+            summary: "Get total agent usage",
+            description:
+              "Sum durable billed tokens and cost across the full session tree, including archived child sessions.",
+          }),
+        ),
         HttpApiEndpoint.get("context", SessionPaths.context, {
           params: { sessionID: SessionID },
           query: WorkspaceRoutingQuery,
@@ -370,9 +384,9 @@ export const SessionApi = HttpApi.make("session")
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.attachment",
-            summary: "Read a message image attachment",
+            summary: "Read a message media attachment",
             description:
-              "Serve the persisted image for this exact session, message and part without exposing arbitrary blob or file paths.",
+              "Serve persisted image, audio or video bytes for this exact session, message and part without exposing arbitrary blob or file paths.",
           }),
         ),
         HttpApiEndpoint.get("message", SessionPaths.message, {

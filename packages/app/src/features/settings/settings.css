@@ -224,6 +224,17 @@
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }
+.settings-currency-form {
+  display: grid;
+  max-width: 280px;
+  gap: var(--space-3);
+}
+.settings-currency-form__rate {
+  display: grid;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
 .settings-select-label > span {
   position: absolute;
   width: 1px;
@@ -232,7 +243,8 @@
   clip-path: inset(50%);
 }
 .settings-select-label select,
-.settings-select-label input {
+.settings-select-label input,
+.settings-currency-form__rate input {
   min-height: 38px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);

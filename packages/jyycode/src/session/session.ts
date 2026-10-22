@@ -188,6 +188,15 @@ const Tokens = Schema.Struct({
   }),
 })
 
+export const UsageSummary = Schema.Struct({
+  sessionID: SessionID,
+  sessionIDs: Schema.Array(SessionID),
+  sessionCount: NonNegativeInt,
+  tokens: Tokens,
+  cost: Schema.Finite,
+}).annotate({ identifier: "SessionUsageSummary" })
+export type UsageSummary = typeof UsageSummary.Type
+
 const EmptyTokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
 
 const Share = Schema.Struct({
@@ -519,6 +528,7 @@ export interface Interface {
   readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
   readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<MessageV2.WithParts[], NotFound>
   readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
+  readonly usage: (sessionID: SessionID) => Effect.Effect<UsageSummary, NotFound>
   readonly remove: (sessionID: SessionID) => Effect.Effect<void, NotFound>
   readonly updateMessage: <T extends MessageV2.Info>(msg: T) => Effect.Effect<T>
   readonly removeMessage: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MessageID>
@@ -682,6 +692,46 @@ export const layer: Layer.Layer<
           .all(),
       )
       return rows.map(fromRow)
+    })
+
+    const usage = Effect.fn("Session.usage")(function* (sessionID: SessionID) {
+      const root = yield* get(sessionID)
+      // Include all retained children, not just current plan tasks or visible
+      // sessions. UNION also deduplicates imported graphs with parent cycles.
+      const rows = yield* db((d) =>
+        d.all<{
+          id: SessionID
+          cost: number
+          input: number
+          output: number
+          reasoning: number
+          cache_read: number
+          cache_write: number
+        }>(sql`
+        WITH RECURSIVE descendants(id) AS (
+          SELECT id FROM ${SessionTable} WHERE id = ${sessionID}
+          UNION
+          SELECT child.id FROM ${SessionTable} AS child
+          JOIN descendants ON child.parent_id = descendants.id
+          WHERE child.project_id = ${root.projectID}
+        )
+        SELECT s.id, s.cost, s.tokens_input AS input, s.tokens_output AS output,
+          s.tokens_reasoning AS reasoning, s.tokens_cache_read AS cache_read,
+          s.tokens_cache_write AS cache_write
+        FROM ${SessionTable} AS s JOIN descendants ON s.id = descendants.id
+      `),
+      )
+      const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+      let cost = 0
+      for (const row of rows) {
+        tokens.input += row.input
+        tokens.output += row.output
+        tokens.reasoning += row.reasoning
+        tokens.cache.read += row.cache_read
+        tokens.cache.write += row.cache_write
+        cost += row.cost
+      }
+      return { sessionID, sessionIDs: rows.map((row) => row.id), sessionCount: rows.length, tokens, cost }
     })
 
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -1008,6 +1058,7 @@ export const layer: Layer.Layer<
       diff,
       messages,
       children,
+      usage,
       remove,
       updateMessage,
       removeMessage,

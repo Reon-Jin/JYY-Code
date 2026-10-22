@@ -1,12 +1,13 @@
 import { tr } from "../../i18n/i18n-context"
 import { Show, type JSX } from "solid-js"
 import type { ComposerUsageMetrics } from "./usage-metrics"
+import { usdToCny } from "./cost-currency"
 
 const exactNumber = new Intl.NumberFormat("zh-CN")
 const compactNumber = new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 })
-const money = new Intl.NumberFormat("en-US", {
+const money = new Intl.NumberFormat("zh-CN", {
   style: "currency",
-  currency: "USD",
+  currency: "CNY",
   minimumFractionDigits: 4,
   maximumFractionDigits: 6,
 })
@@ -21,7 +22,8 @@ function exact(value: number) {
 
 function estimatedCost(value: number) {
   if (!Number.isFinite(value) || value <= 0) return tr("composer.no-pricing-data")
-  return value < 0.000001 ? "<$0.000001" : money.format(value)
+  const cny = value * usdToCny()
+  return cny < 0.000001 ? "<¥0.000001" : money.format(cny)
 }
 
 export function ComposerUsage(props: { metrics: ComposerUsageMetrics; permissionControl?: JSX.Element }) {
@@ -47,18 +49,45 @@ export function ComposerUsage(props: { metrics: ComposerUsageMetrics; permission
           <span style={{ width: `${props.metrics.contextPercent ?? 0}%` }} />
         </span>
       </div>
-      <Show when={props.metrics.aggregate} keyed>
+      <Show
+        when={props.metrics.aggregate}
+        keyed
+        fallback={
+          <Show when={props.metrics.aggregateScope === "tree"}>
+            <div class="composer-usage__item">
+              <span>{tr("composer.all-agent-tokens")}</span>
+              <strong>
+                {tr(props.metrics.aggregateState === "error" ? "composer.usage-unavailable" : "composer.usage-loading")}
+              </strong>
+            </div>
+            <div class="composer-usage__item">
+              <span>{tr("composer.api-consumption")}</span>
+              <strong>
+                {tr(props.metrics.aggregateState === "error" ? "composer.usage-unavailable" : "composer.usage-loading")}
+              </strong>
+            </div>
+          </Show>
+        }
+      >
         {(aggregate) => (
           <>
-            <div class="composer-usage__item composer-usage__tokens"
+            <div
+              class="composer-usage__item composer-usage__tokens"
               tabIndex={aggregate.tokens.total > 0 ? 0 : undefined}
               aria-describedby={aggregate.tokens.total > 0 ? "composer-token-breakdown" : undefined}
             >
-              <span>{tr("composer.session-token")}</span>
-              <strong>{aggregate.tokens.total > 0 ? compact(aggregate.tokens.total) : tr("composer.no-data-yet")}</strong>
+              <span>
+                {tr(props.metrics.aggregateScope === "tree" ? "composer.all-agent-tokens" : "composer.session-token")}
+              </span>
+              <strong>
+                {aggregate.tokens.total > 0 ? compact(aggregate.tokens.total) : tr("composer.no-data-yet")}
+              </strong>
               <Show when={aggregate.tokens.total > 0}>
                 <div id="composer-token-breakdown" class="composer-usage__popover" role="tooltip">
                   <strong>{tr("composer.token-source")}</strong>
+                  <Show when={props.metrics.aggregateScope === "tree"}>
+                    <p>{tr("composer.all-agent-scope", { count: props.metrics.agentCount ?? 1 })}</p>
+                  </Show>
                   <dl>
                     <Show when={aggregate.tokens.input > 0}>
                       <div>

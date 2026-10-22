@@ -2495,6 +2495,22 @@ export type NotFoundError = {
   }
 }
 
+export type SessionUsageSummary = {
+  sessionID: string
+  sessionIDs: Array<string>
+  sessionCount: number
+  tokens: {
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
+  cost: number
+}
+
 export type TextPartInput = {
   id?: string
   type: "text"
@@ -8842,6 +8858,40 @@ export type SessionChildrenResponses = {
 }
 
 export type SessionChildrenResponse = SessionChildrenResponses[keyof SessionChildrenResponses]
+
+export type SessionUsageData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/usage"
+}
+
+export type SessionUsageErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionUsageError = SessionUsageErrors[keyof SessionUsageErrors]
+
+export type SessionUsageResponses = {
+  /**
+   * Billed usage for the session and every descendant
+   */
+  200: SessionUsageSummary
+}
+
+export type SessionUsageResponse = SessionUsageResponses[keyof SessionUsageResponses]
 
 export type SessionContextData = {
   body?: never

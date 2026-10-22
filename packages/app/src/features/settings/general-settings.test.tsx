@@ -6,6 +6,8 @@ import { createFakeDesktop } from "../../test/fake-desktop"
 import { GeneralSettings } from "./general-settings"
 import { I18nProvider } from "../../i18n/i18n-context"
 import * as soundEffects from "../sound-effects/sound-effects"
+import { publishUsdToCny, usdToCny } from "../composer/cost-currency"
+import { DEFAULT_USD_TO_CNY } from "./settings-preferences"
 
 function renderGeneral() {
   const desktop = createFakeDesktop()
@@ -22,6 +24,32 @@ function renderGeneral() {
 describe("GeneralSettings", () => {
   afterEach(() => {
     cleanup()
+    publishUsdToCny(DEFAULT_USD_TO_CNY)
+  })
+  it("persists a custom RMB exchange rate, publishes it, and preserves it when changing language", async () => {
+    const desktop = renderGeneral()
+    const user = userEvent.setup()
+    const rate = await screen.findByRole("spinbutton", { name: "美元兑人民币汇率" })
+    await user.clear(rate)
+    await user.type(rate, "7")
+    await user.click(screen.getByRole("button", { name: "保存汇率" }))
+    await waitFor(() => expect(desktop.settings().usdToCny).toBe(7))
+    expect(usdToCny()).toBe(7)
+    await user.selectOptions(screen.getByRole("combobox", { name: "语言" }), "en-US")
+    await waitFor(() => expect(desktop.settings().locale).toBe("en-US"))
+    expect(desktop.settings().usdToCny).toBe(7)
+  })
+  it("keeps the previous exchange rate when persistence fails", async () => {
+    const desktop = renderGeneral()
+    const user = userEvent.setup()
+    const rate = await screen.findByRole("spinbutton", { name: "美元兑人民币汇率" })
+    vi.mocked(desktop.bridge.saveSettings).mockRejectedValueOnce(new Error("store unavailable"))
+    await user.clear(rate)
+    await user.type(rate, "7")
+    await user.click(screen.getByRole("button", { name: "保存汇率" }))
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("store unavailable"))
+    expect(desktop.settings().usdToCny).toBe(DEFAULT_USD_TO_CNY)
+    expect(usdToCny()).toBe(DEFAULT_USD_TO_CNY)
   })
 
   it("persists startup preferences", async () => {

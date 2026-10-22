@@ -8,6 +8,22 @@ import { ReasoningPartView } from "./reasoning-part"
 import { presentMessageText } from "./message-presentation"
 import { TextPartView } from "./text-part"
 import { ToolCallCard } from "./tool-call-card"
+import { MediaPreview } from "./media-preview"
+
+function MediaAttachment(props: { part: FilePart }) {
+  const data = useOptionalData()
+  const source = () =>
+    props.part.url.startsWith("data:") || props.part.url.startsWith("blob:http")
+      ? props.part.url
+      : data?.attachmentUrl(props.part)
+  return (
+    <MediaPreview
+      kind={props.part.mime.startsWith("audio/") ? "audio" : "video"}
+      name={props.part.filename ?? props.part.mime}
+      src={source()}
+    />
+  )
+}
 
 export function ImageAttachment(props: { part: FilePart }) {
   const data = useOptionalData()
@@ -91,15 +107,22 @@ export function MessagePartView(props: { part: Part; messageRole?: string; messa
       <Match when={props.part.type === "file" ? props.part : undefined}>
         {(part) => (
           <Show
-            when={part().mime.startsWith("image/")}
+            when={part().mime.startsWith("audio/") || part().mime.startsWith("video/")}
             fallback={
-              <figure class="conversation-attachment" data-kind="file">
-                <FileIcon aria-hidden="true" />
-                <figcaption title={part().filename ?? part().mime}>{part().filename ?? part().mime}</figcaption>
-              </figure>
+              <Show
+                when={part().mime.startsWith("image/")}
+                fallback={
+                  <figure class="conversation-attachment" data-kind="file">
+                    <FileIcon aria-hidden="true" />
+                    <figcaption title={part().filename ?? part().mime}>{part().filename ?? part().mime}</figcaption>
+                  </figure>
+                }
+              >
+                <ImageAttachment part={part()} />
+              </Show>
             }
           >
-            <ImageAttachment part={part()} />
+            <MediaAttachment part={part()} />
           </Show>
         )}
       </Match>

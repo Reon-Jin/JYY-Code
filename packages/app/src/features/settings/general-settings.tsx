@@ -1,13 +1,16 @@
 import { tr, useI18n } from "../../i18n/i18n-context"
 import { createSignal, onMount, Show } from "solid-js"
 import { InlineError } from "../../components/ui/inline-error"
+import { Button } from "../../components/ui/button"
 import { useDesktopBridge } from "../../platform/context"
 import {
   defaultDesktopSettings,
   type AppLocale,
   type DesktopSettings,
   type NotificationPreferences,
+  validUsdToCny,
 } from "./settings-preferences"
+import { publishUsdToCny } from "../composer/cost-currency"
 import type { DesktopNotificationPermission } from "../../platform/types"
 import { publishDesktopNotificationPermission } from "../notifications/desktop-notifications"
 import { publishSoundEffectsEnabled } from "../sound-effects/sound-effects"
@@ -22,6 +25,7 @@ export function GeneralSettings() {
   const [settings, setSettings] = createSignal<DesktopSettings>({ ...defaultDesktopSettings })
   const [error, setError] = createSignal<string>()
   const [saving, setSaving] = createSignal(false)
+  const [exchangeRate, setExchangeRate] = createSignal(String(defaultDesktopSettings.usdToCny))
   const [notificationPermission, setNotificationPermission] = createSignal<DesktopNotificationPermission>("default")
 
   onMount(() => {
@@ -30,7 +34,10 @@ export function GeneralSettings() {
       .catch(() => setNotificationPermission("unsupported"))
     void bridge
       .loadSettings()
-      .then(setSettings)
+      .then((loaded) => {
+        setSettings(loaded)
+        setExchangeRate(String(loaded.usdToCny ?? defaultDesktopSettings.usdToCny))
+      })
       .catch((cause) => setError(message(cause)))
   })
 
@@ -41,6 +48,7 @@ export function GeneralSettings() {
     setSaving(true)
     try {
       await bridge.saveSettings(next)
+      publishUsdToCny(next.usdToCny)
     } catch (cause) {
       setSettings(previous)
       setError(message(cause))
@@ -158,6 +166,40 @@ export function GeneralSettings() {
             <option value="en-US">{tr("settings.english")}</option>
           </select>
         </label>
+      </section>
+
+      <section class="settings-card" aria-labelledby="currency-setting-title">
+        <h3 id="currency-setting-title">{tr("settings.cny-cost")}</h3>
+        <form
+          class="settings-currency-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const rate = Number(exchangeRate())
+            if (!validUsdToCny(rate)) {
+              setError(tr("settings.invalid-exchange-rate"))
+              return
+            }
+            void save({ ...settings(), usdToCny: rate })
+          }}
+        >
+          <label class="settings-currency-form__rate">
+            <span>{tr("settings.usd-to-cny")}</span>
+            <input
+              type="number"
+              min="0.000001"
+              max="100"
+              step="any"
+              required
+              aria-label={tr("settings.usd-to-cny")}
+              value={exchangeRate()}
+              disabled={saving()}
+              onInput={(event) => setExchangeRate(event.currentTarget.value)}
+            />
+          </label>
+          <Button type="submit" variant="secondary" disabled={saving()}>
+            {tr("settings.save-exchange-rate")}
+          </Button>
+        </form>
       </section>
 
       <section class="settings-card" aria-labelledby="notifications-setting-title">

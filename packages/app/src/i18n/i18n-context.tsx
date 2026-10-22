@@ -90,7 +90,8 @@ export function I18nProvider(props: ParentProps) {
       if (nextLocale === previousLocale) return
       setLocaleSignal(nextLocale)
       try {
-        const nextSettings = { ...settings, locale: nextLocale }
+        // Other settings can change while the language provider remains mounted.
+        const nextSettings = { ...(await bridge.loadSettings()), locale: nextLocale }
         await bridge.saveSettings(nextSettings)
         settings = nextSettings
       } catch (error) {

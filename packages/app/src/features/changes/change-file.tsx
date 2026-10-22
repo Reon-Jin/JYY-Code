@@ -50,7 +50,9 @@ export function ChangeFile(props: {
             <ChevronDown aria-hidden="true" />
           </Show>
           <FileCode2 aria-hidden="true" />
-          <span class="change-file__path">{props.change.file}</span>
+          <span class="change-file__path" title={props.change.file}>
+            {props.change.file}
+          </span>
           <span class="change-file__status" data-status={props.change.status ?? "modified"}>
             {statusLabel(props.change.status)}
           </span>

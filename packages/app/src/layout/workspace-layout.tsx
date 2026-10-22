@@ -32,6 +32,7 @@ import type { ConversationSnapshot } from "../features/conversation/conversation
 import { MessageTimeline } from "../features/conversation/message-timeline"
 import { Composer } from "../features/composer/composer"
 import { composerUsageMetrics } from "../features/composer/usage-metrics"
+import { sessionUsageQueryOptions } from "../features/composer/usage-query"
 import { AgentPermissionControl } from "../features/composer/agent-permission-control"
 import { BranchControl } from "../features/git/branch-control"
 import {
@@ -434,7 +435,10 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
             </Show>
             <MessageTimeline
               messages={props.conversation?.messages ?? []}
-              running={props.statuses[props.activeSessionID!]?.type === "busy" || props.statuses[props.activeSessionID!]?.type === "retry"}
+              running={
+                props.statuses[props.activeSessionID!]?.type === "busy" ||
+                props.statuses[props.activeSessionID!]?.type === "retry"
+              }
               goal={selected()?.goal}
               compaction={props.compaction}
               loading={props.conversationLoading}
@@ -500,21 +504,18 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     const sessionApi = api()
     return { queryKey: keys.sessions(directory), queryFn: () => sessionApi.list(false) }
   }, data.queryClient)
-  const archivedQuery = createQuery(
-    () => {
-      const directory = data.directory()
-      const sessionApi = api()
-      return {
-        queryKey: keys.sessions(directory, true),
-        queryFn: () => sessionApi.list(true),
-        // Archived sessions are not needed to render the active workspace. Load
-        // them only when the user opens the archive view, or when an active child
-        // needs its archived root session for context.
-        enabled: archiveRequested(),
-      }
-    },
-    data.queryClient,
-  )
+  const archivedQuery = createQuery(() => {
+    const directory = data.directory()
+    const sessionApi = api()
+    return {
+      queryKey: keys.sessions(directory, true),
+      queryFn: () => sessionApi.list(true),
+      // Archived sessions are not needed to render the active workspace. Load
+      // them only when the user opens the archive view, or when an active child
+      // needs its archived root session for context.
+      enabled: archiveRequested(),
+    }
+  }, data.queryClient)
   const sessionQuery = createQuery(
     () => ({
       ...sessionQueryOptions({
@@ -669,6 +670,17 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   // A completed plan clears currentStepID, but its blackboard history stays readable.
   const planExists = createMemo(() => planSnapshot().totalSteps > 0)
   const rootMultiAgentEnabled = createMemo(() => (rootSession() ? effectiveMultiAgent(rootSession()!) : false))
+  const usageQuery = createQuery(
+    () => ({
+      ...sessionUsageQueryOptions({
+        client: data.client(),
+        directory: data.directory(),
+        sessionID: rootSessionID() ?? "",
+      }),
+      enabled: Boolean(rootSessionID()) && rootMultiAgentEnabled(),
+    }),
+    data.queryClient,
+  )
   const blackboardQuery = createQuery(
     () => ({
       ...blackboardQueryOptions({
@@ -742,6 +754,17 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       session,
       messages: conversationQuery.data?.messages ?? [],
       contextWindow,
+      ...(rootMultiAgentEnabled()
+        ? {
+            aggregateScope: "tree" as const,
+            treeUsage: usageQuery.data,
+            aggregateState: usageQuery.error
+              ? ("error" as const)
+              : usageQuery.isPending
+                ? ("loading" as const)
+                : undefined,
+          }
+        : {}),
     })
   })
 

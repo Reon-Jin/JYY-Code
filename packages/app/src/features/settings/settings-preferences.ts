@@ -2,6 +2,15 @@ export type StartupPreference = "restore" | "home"
 export type AppLocale = "zh-CN" | "en-US"
 export type UpdatePolicy = "install" | "notify" | "off"
 
+// ECB reference rates, 2026-10-21: EUR/CNY 7.4999 / EUR/USD 1.1234.
+// https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.eu.html
+// This is a configurable estimate, never a live or settlement exchange rate.
+export const DEFAULT_USD_TO_CNY = 6.6761
+
+export function validUsdToCny(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 100
+}
+
 export type NotificationPreferences = {
   completion: boolean
   permission: boolean
@@ -14,6 +23,7 @@ export type DesktopSettings = {
   notifications: NotificationPreferences
   updatePolicy: UpdatePolicy
   soundEffects: boolean
+  usdToCny: number
 }
 
 export const defaultDesktopSettings: DesktopSettings = {
@@ -22,6 +32,7 @@ export const defaultDesktopSettings: DesktopSettings = {
   notifications: { completion: true, permission: true, question: true },
   updatePolicy: "notify",
   soundEffects: true,
+  usdToCny: DEFAULT_USD_TO_CNY,
 }
 
 export function parseDesktopSettings(value: unknown): DesktopSettings {
@@ -43,5 +54,6 @@ export function parseDesktopSettings(value: unknown): DesktopSettings {
         ? candidate.updatePolicy
         : "notify",
     soundEffects: typeof candidate.soundEffects === "boolean" ? candidate.soundEffects : true,
+    usdToCny: validUsdToCny(candidate.usdToCny) ? candidate.usdToCny : DEFAULT_USD_TO_CNY,
   }
 }

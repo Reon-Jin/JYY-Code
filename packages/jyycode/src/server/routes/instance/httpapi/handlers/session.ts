@@ -250,6 +250,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* session.children(ctx.params.sessionID)
     })
 
+    const usage = Effect.fn("SessionHttpApi.usage")(function* (ctx: { params: { sessionID: SessionID } }) {
+      return yield* SessionError.mapStorageNotFound(session.usage(ctx.params.sessionID))
+    })
+
     const context = Effect.fn("SessionHttpApi.context")(function* (ctx: { params: { sessionID: SessionID } }) {
       yield* requireSession(ctx.params.sessionID)
       const messages = yield* MessageV2.filterCompactedEffect(ctx.params.sessionID)
@@ -280,7 +284,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     }) {
       yield* requireSession(ctx.params.sessionID)
       const part = yield* session.getPart(ctx.params)
-      if (!part || part.type !== "file" || !part.mime.startsWith("image/"))
+      if (!part || part.type !== "file" || !/^(image|audio|video)\//.test(part.mime))
         return yield* ApiError.notFound("Image attachment not found")
       const bytes = yield* Effect.tryPromise({
         try: async () => {
@@ -830,6 +834,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("status", status)
       .handle("get", get)
       .handle("children", children)
+      .handle("usage", usage)
       .handle("context", context)
       .handle("plan", plan)
       .handle("attachment", attachment)

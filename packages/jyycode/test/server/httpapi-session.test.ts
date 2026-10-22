@@ -217,6 +217,99 @@ afterEach(async () => {
 })
 
 describe("session HttpApi", () => {
+  ;(it.instance("returns only the requested turn's persisted file changes", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const svc = yield* Session.Service
+      const session = yield* svc.create()
+      const first = yield* createTextMessage(session.id, "first")
+      const second = yield* createTextMessage(session.id, "second")
+      const changes = [
+        {
+          file: "first.ts",
+          additions: 2,
+          deletions: 1,
+          status: "modified" as const,
+          patch: "@@ -1 +1,2 @@\n-old\n+new\n+more",
+        },
+      ]
+      yield* svc.updateMessage({ ...first.info, summary: { diffs: changes } })
+      yield* svc.updateMessage({
+        ...second.info,
+        summary: { diffs: [{ file: "second.ts", additions: 7, deletions: 0, status: "added" }] },
+      })
+      const headers = { "x-jyycode-directory": test.directory }
+      const result = yield* requestJson(`/session/${session.id}/diff?messageID=${first.info.id}`, { headers })
+      expect(result).toEqual(changes)
+      expect(yield* requestJson(`/session/${session.id}/diff?messageID=${MessageID.ascending()}`, { headers })).toEqual(
+        [],
+      )
+    }),
+  ),
+    it.instance("sums billed usage across the complete agent tree, including archived and nested children, once", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const svc = yield* Session.Service
+        const root = yield* svc.create({ multiAgent: true })
+        const child = yield* svc.create({ parentID: root.id })
+        const archived = yield* svc.create({ parentID: root.id })
+        const nested = yield* svc.create({ parentID: root.id })
+        // Imported history can have deeper descendants than today's dispatch limit.
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({ parent_id: child.id, agent_depth: 2 })
+            .where(eq(SessionTable.id, nested.id))
+            .run(),
+        )
+        const unrelated = yield* svc.create()
+        for (const [index, session] of [root, child, archived, nested, unrelated].entries()) {
+          const amount = (index + 1) * 100
+          const { info: user } = yield* createTextMessage(session.id, "usage")
+          const info = yield* svc.updateMessage({
+            id: MessageID.ascending(),
+            sessionID: session.id,
+            role: "assistant",
+            parentID: user.id,
+            agent: "build",
+            mode: "build",
+            modelID: ModelID.make("test"),
+            providerID: ProviderID.make("test"),
+            path: { cwd: test.directory, root: test.directory },
+            time: { created: Date.now(), completed: Date.now() },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          })
+          const part = {
+            id: PartID.ascending(),
+            messageID: info.id,
+            sessionID: session.id,
+            type: "step-finish" as const,
+            reason: "stop",
+            cost: amount / 1000,
+            tokens: { input: amount, output: amount / 10, reasoning: 2, cache: { read: 3, write: 1 } },
+          }
+          yield* svc.updatePart(part)
+          yield* svc.updatePart(part)
+        }
+        yield* svc.setArchived({ sessionID: archived.id, time: Date.now() })
+        const headers = { "x-jyycode-directory": test.directory }
+        const result = yield* requestJson<{
+          sessionID: string
+          sessionIDs: string[]
+          sessionCount: number
+          cost: number
+          tokens: { input: number; output: number; reasoning: number; cache: { read: number; write: number } }
+        }>(`/session/${root.id}/usage`, { headers })
+        expect(result.sessionID).toBe(root.id)
+        expect(new Set(result.sessionIDs)).toEqual(new Set([root.id, child.id, archived.id, nested.id]))
+        expect(result.sessionCount).toBe(4)
+        expect(result.cost).toBeCloseTo(1)
+        expect(result.tokens).toEqual({ input: 1000, output: 100, reasoning: 8, cache: { read: 12, write: 4 } })
+        expect((yield* svc.get(root.id)).tokens?.input).toBe(100)
+        expect((yield* request(`/session/${SessionID.descending()}/usage`, { headers })).status).toBe(404)
+      }),
+    ))
   it.instance("serves persisted image bytes only for the owning message part", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance
@@ -247,6 +340,23 @@ describe("session HttpApi", () => {
       expect(Buffer.from(yield* Effect.promise(() => response.arrayBuffer()))).toEqual(png)
       expect((yield* request(route(other.id), { headers })).status).toBe(404)
       expect((yield* request(route(session.id, text.id), { headers })).status).toBe(404)
+      for (const mime of ["audio/wav", "video/mp4"]) {
+        const bytes = Buffer.from(`test ${mime}`)
+        const media = yield* svc.updatePart({
+          id: PartID.ascending(),
+          sessionID: session.id,
+          messageID: info.id,
+          type: "file",
+          mime,
+          filename: "output",
+          url: `data:${mime};base64,${bytes.toString("base64")}`,
+        })
+        expect(media.url).toStartWith("blob:sha256:")
+        const result = yield* request(route(session.id, media.id), { headers })
+        expect(result.status).toBe(200)
+        expect(result.headers.get("content-type")).toBe(mime)
+        expect(Buffer.from(yield* Effect.promise(() => result.arrayBuffer()))).toEqual(bytes)
+      }
     }),
   )
 

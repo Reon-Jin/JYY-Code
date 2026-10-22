@@ -444,61 +444,64 @@ describe("event routing", () => {
     releaseStream()
   })
 
-  it("refreshes session usage once per frame after step-finish parts", async () => {
-    const queryClient = createDesktopQueryClient()
-    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
-    let releaseStream = () => {}
-    const streamWait = new Promise<void>((resolve) => { releaseStream = resolve })
-    const stream = (async function* () {
-      for (const index of [1, 2]) {
-        yield {
-          directory: "C:\\a",
-          payload: {
-            id: `evt_usage_${index}`,
-            type: "message.part.updated",
-            properties: {
-              sessionID: session.id,
-              part: {
-                id: `part_usage_${index}`,
+  it.each(["C:\\a", "D:\\isolated-child"])(
+    "refreshes total usage once per frame for billing in %s",
+    async (directory) => {
+      const queryClient = createDesktopQueryClient()
+      const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+      let releaseStream = () => {}
+      const streamWait = new Promise<void>((resolve) => {
+        releaseStream = resolve
+      })
+      const stream = (async function* () {
+        for (const index of [1, 2]) {
+          yield {
+            directory,
+            payload: {
+              id: `evt_usage_${index}`,
+              type: "message.part.updated",
+              properties: {
                 sessionID: session.id,
-                messageID: message.id,
-                type: "step-finish",
-                reason: "tool-calls",
-                cost: 0.001,
-                tokens: { input: 100, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+                part: {
+                  id: `part_usage_${index}`,
+                  sessionID: session.id,
+                  messageID: message.id,
+                  type: "step-finish",
+                  reason: "tool-calls",
+                  cost: 0.001,
+                  tokens: { input: 100, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+                },
               },
             },
-          },
-        } as GlobalEvent
-      }
-      await streamWait
-    })()
-    let scheduled: FrameRequestCallback | undefined
-    const bridge = new EventBridge({
-      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
-      directory: "C:\\a",
-      queryClient,
-      requestFrame: (callback) => {
-        scheduled = callback
-        return 1
-      },
-      cancelFrame: vi.fn(),
-    })
+          } as GlobalEvent
+        }
+        await streamWait
+      })()
+      let scheduled: FrameRequestCallback | undefined
+      const bridge = new EventBridge({
+        client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+        directory: "C:\\a",
+        queryClient,
+        requestFrame: (callback) => {
+          scheduled = callback
+          return 1
+        },
+        cancelFrame: vi.fn(),
+      })
 
-    bridge.start()
-    await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
-    scheduled?.(0)
-    await vi.waitFor(() =>
-      expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.session("C:\\a", session.id), exact: true }),
-    )
-    const called = (key: readonly unknown[]) =>
-      invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(key))
-    expect(called(keys.session("C:\\a", session.id))).toHaveLength(1)
-    expect(called(keys.sessions("C:\\a"))).toHaveLength(1)
+      bridge.start()
+      await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
+      scheduled?.(0)
+      await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.sessionUsageScope("C:\\a") }))
+      const called = (key: readonly unknown[]) =>
+        invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(key))
+      expect(called(keys.sessionUsageScope("C:\\a"))).toHaveLength(1)
+      expect(called(keys.session("C:\\a", session.id))).toHaveLength(directory === "C:\\a" ? 1 : 0)
 
-    bridge.abort()
-    releaseStream()
-  })
+      bridge.abort()
+      releaseStream()
+    },
+  )
 
   it("patches compaction status caches from started and ended events", async () => {
     const queryClient = createDesktopQueryClient()
@@ -677,7 +680,9 @@ describe("event routing", () => {
     const queryKey = keys.messages("C:\\a", session.id)
     queryClient.setQueryData(queryKey, snapshotFromMessages(session.id, [{ info: message, parts: [part] }]))
     let releaseStream = () => {}
-    const streamWait = new Promise<void>((resolve) => { releaseStream = resolve })
+    const streamWait = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
     const stream = (async function* () {
       yield {
         directory: "C:\\a",
@@ -701,7 +706,9 @@ describe("event routing", () => {
 
     bridge.start()
     await vi.waitFor(() => {
-      expect(queryClient.getQueryData<ConversationSnapshot>(queryKey)?.messages[0]?.parts[0]).toMatchObject({ text: "Hello!" })
+      expect(queryClient.getQueryData<ConversationSnapshot>(queryKey)?.messages[0]?.parts[0]).toMatchObject({
+        text: "Hello!",
+      })
     })
     expect(requestFrame).toHaveBeenCalledTimes(1)
     expect(cancelFrame).toHaveBeenCalledWith(1)
@@ -716,17 +723,22 @@ describe("event routing", () => {
     const queryKey = keys.messages("C:\\a", session.id)
     queryClient.setQueryData(queryKey, snapshotFromMessages(session.id, [{ info: message, parts: [part] }]))
     let releaseSecond = () => {}
-    const secondGate = new Promise<void>((resolve) => { releaseSecond = resolve })
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve
+    })
     let releaseStream = () => {}
-    const streamWait = new Promise<void>((resolve) => { releaseStream = resolve })
-    const delta = (id: string, text: string) => ({
-      directory: "C:\\a",
-      payload: {
-        id,
-        type: "message.part.delta",
-        properties: { sessionID: session.id, messageID: message.id, partID: part.id, field: "text", delta: text },
-      },
-    }) as GlobalEvent
+    const streamWait = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+    const delta = (id: string, text: string) =>
+      ({
+        directory: "C:\\a",
+        payload: {
+          id,
+          type: "message.part.delta",
+          properties: { sessionID: session.id, messageID: message.id, partID: part.id, field: "text", delta: text },
+        },
+      }) as GlobalEvent
     const stream = (async function* () {
       yield delta("evt_hidden_1", "!")
       await secondGate
@@ -748,13 +760,17 @@ describe("event routing", () => {
     visibility = "hidden"
     document.dispatchEvent(new Event("visibilitychange"))
     await vi.waitFor(() => {
-      expect(queryClient.getQueryData<ConversationSnapshot>(queryKey)?.messages[0]?.parts[0]).toMatchObject({ text: "Hello!" })
+      expect(queryClient.getQueryData<ConversationSnapshot>(queryKey)?.messages[0]?.parts[0]).toMatchObject({
+        text: "Hello!",
+      })
     })
     expect(cancelFrame).toHaveBeenCalledWith(1)
 
     releaseSecond()
     await vi.waitFor(() => {
-      expect(queryClient.getQueryData<ConversationSnapshot>(queryKey)?.messages[0]?.parts[0]).toMatchObject({ text: "Hello!!" })
+      expect(queryClient.getQueryData<ConversationSnapshot>(queryKey)?.messages[0]?.parts[0]).toMatchObject({
+        text: "Hello!!",
+      })
     })
     expect(requestFrame).toHaveBeenCalledTimes(1)
     bridge.abort()

@@ -41,6 +41,8 @@ export const keys = {
       ? ([...project(directory), "sessions", "archived"] as const)
       : ([...project(directory), "sessions"] as const),
   session: (directory: string, sessionID: string) => [...project(directory), "session", sessionID] as const,
+  sessionUsageScope: (directory: string) => [...project(directory), "agent-usage"] as const,
+  sessionUsage: (directory: string, sessionID: string) => [...project(directory), "agent-usage", sessionID] as const,
   messages: (directory: string, sessionID: string) =>
     [...project(directory), "session", sessionID, "messages"] as const,
   compaction: (directory: string, sessionID: string) =>

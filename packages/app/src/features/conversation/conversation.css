@@ -152,6 +152,111 @@
   object-fit: contain;
 }
 
+.turn-changes {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-panel);
+}
+.turn-changes__header {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+.turn-changes__header > svg {
+  width: 22px;
+  height: 22px;
+  color: var(--color-text-muted);
+}
+.turn-changes__header > div {
+  display: grid;
+  gap: var(--space-1);
+}
+.turn-changes__files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.turn-changes .change-file__row {
+  grid-template-columns: minmax(0, 1fr);
+}
+.turn-changes .change-file__toggle {
+  min-height: 42px;
+}
+.turn-changes__more {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.turn-changes__more > svg {
+  width: 16px;
+  height: 16px;
+}
+.turn-changes__empty {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.turn-changes__images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.turn-changes__images .conversation-attachment__image {
+  width: 100%;
+}
+.turn-changes__images img {
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+}
+.turn-changes__media {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+.conversation-attachment[data-kind="audio"],
+.conversation-attachment[data-kind="video"] {
+  display: grid;
+  gap: var(--space-2);
+}
+.conversation-attachment audio,
+.conversation-attachment video {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+.conversation-attachment video {
+  max-height: 360px;
+  background: #111;
+  border-radius: var(--radius-sm);
+}
+@media (max-width: 560px) {
+  .turn-changes__images {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .turn-changes__header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .turn-changes__header > svg {
+    display: none;
+  }
+}
+
 .conversation-attachment[data-kind="file"] {
   display: flex;
   align-items: center;

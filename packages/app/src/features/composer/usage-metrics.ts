@@ -1,4 +1,4 @@
-import type { AssistantMessage, Session } from "@jyycode-ai/sdk/v2/client"
+import type { AssistantMessage, Session, SessionUsageSummary } from "@jyycode-ai/sdk/v2/client"
 import type { ConversationMessage } from "../conversation/conversation-state"
 
 export type TokenUsageBreakdown = {
@@ -10,6 +10,9 @@ export type TokenUsageBreakdown = {
 }
 
 export type ComposerUsageMetrics = {
+  aggregateScope?: "tree"
+  aggregateState?: "loading" | "error"
+  agentCount?: number
   contextWindow?: number
   contextUsed?: number
   contextPercent?: number
@@ -69,8 +72,8 @@ export function currentContextTokens(messages: readonly ConversationMessage[]) {
 }
 
 export function aggregateSessionUsage(root: Session, messages: readonly ConversationMessage[] = []) {
-  // The workspace list contains root sessions only. A partial child list must
-  // not be presented as a complete main + subagent total.
+  // Read one durable total. Complete agent-tree totals come from the server;
+  // never infer them from the visible workspace list or current plan tasks.
   const input = root.tokens?.input ?? 0
   const output = root.tokens?.output ?? 0
   const reasoning = root.tokens?.reasoning ?? 0
@@ -89,6 +92,9 @@ export function composerUsageMetrics(input: {
   session: Session
   messages: readonly ConversationMessage[]
   contextWindow?: number
+  treeUsage?: SessionUsageSummary
+  aggregateScope?: "tree"
+  aggregateState?: "loading" | "error"
 }): ComposerUsageMetrics {
   const contextUsed = currentContextTokens(input.messages)
   const contextPercent =
@@ -99,6 +105,23 @@ export function composerUsageMetrics(input: {
     contextWindow: input.contextWindow,
     contextUsed,
     contextPercent,
-    ...(input.session.parentID ? {} : { aggregate: aggregateSessionUsage(input.session, input.messages) }),
+    ...(input.aggregateScope === "tree"
+      ? {
+          aggregateScope: "tree" as const,
+          aggregateState: input.aggregateState,
+          agentCount: input.treeUsage?.sessionCount,
+          ...(input.treeUsage
+            ? {
+                aggregate: aggregateSessionUsage({
+                  ...input.session,
+                  tokens: input.treeUsage.tokens,
+                  cost: input.treeUsage.cost,
+                }),
+              }
+            : {}),
+        }
+      : input.session.parentID
+        ? {}
+        : { aggregate: aggregateSessionUsage(input.session, input.messages) }),
   }
 }

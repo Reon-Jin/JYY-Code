@@ -9,6 +9,24 @@ const base = { id: "part_step", sessionID: "ses_1", messageID: "msg_1" }
 afterEach(cleanup)
 
 describe("MessagePartView", () => {
+  it.each(["audio/wav", "video/mp4"])("renders persisted %s attachments with authenticated native controls", (mime) => {
+    const { container } = render(() => (
+      <DataProvider
+        bootstrap={{ baseUrl: "http://desktop.test", username: "test", password: "secret" }}
+        directory="C:\\work"
+        generation={0}
+      >
+        <MessagePartView
+          part={{ ...base, type: "file", mime, filename: "output", url: `blob:sha256:${"b".repeat(64)}` }}
+        />
+      </DataProvider>
+    ))
+    const media = container.querySelector(mime.startsWith("audio/") ? "audio" : "video")!
+    expect(media).toHaveAttribute("controls")
+    expect(media).not.toHaveAttribute("autoplay")
+    expect(new URL(media.getAttribute("src")!).pathname).toBe("/session/ses_1/message/msg_1/part/part_step/attachment")
+    expect(new URL(media.getAttribute("src")!).searchParams.get("auth_token")).toBe(btoa("test:secret"))
+  })
   it("loads persisted image references through an authenticated attachment URL and expands them", () => {
     const filename = "pasted.png"
     render(() => (

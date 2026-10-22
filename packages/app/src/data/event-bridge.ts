@@ -552,10 +552,26 @@ export class EventBridge {
     const changedBlackboards = new Set<string>()
     const changedUsageSessionIDs = new Set<string>()
     const idleSessionIDs = new Set<string>()
+    let refreshAgentUsage = false
     const invalidatedVcs = new Set<string>()
 
     for (const event of events) {
       if (this.#abort.signal.aborted) return
+      const payload = normalizeEventPayload(event.payload)
+      // Child worktrees can be outside the root directory. Their billing
+      // events must refresh the server-owned tree aggregate before directory
+      // filtering, even when their conversations are not open in this tab.
+      if (
+        payload.type === "session.created" ||
+        payload.type === "session.updated" ||
+        payload.type === "session.deleted" ||
+        payload.type === "session.idle" ||
+        (payload.type === "session.status" && payload.properties.status.type === "idle") ||
+        (payload.type === "message.part.updated" && payload.properties.part.type === "step-finish") ||
+        payload.type === "message.part.removed" ||
+        payload.type === "message.removed"
+      )
+        refreshAgentUsage = true
       for (const action of routeEvent(this.#options.directory, event, this.#options.activeSessionID?.())) {
         if (this.#abort.signal.aborted) return
         publishNotificationAction(action)
@@ -620,6 +636,8 @@ export class EventBridge {
     }
 
     if (this.#abort.signal.aborted) return
+    if (refreshAgentUsage)
+      void this.#options.queryClient.invalidateQueries({ queryKey: keys.sessionUsageScope(this.#options.directory) })
     for (const sessionID of changedPlans) this.#invalidate(keys.plan(this.#options.directory, sessionID))
     for (const rootSessionID of changedBlackboards) {
       // The board is cached per step; invalidate every step variant as well.

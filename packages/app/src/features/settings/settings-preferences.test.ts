@@ -3,6 +3,11 @@ import { createFakeDesktop } from "../../test/fake-desktop"
 import { defaultDesktopSettings, parseDesktopSettings } from "./settings-preferences"
 
 describe("parseDesktopSettings", () => {
+  it("validates the persisted USD to CNY exchange rate and migrates older settings", () => {
+    expect(parseDesktopSettings({ usdToCny: 7 }).usdToCny).toBe(7)
+    for (const value of [0, -1, NaN, Infinity, 101, "7", null])
+      expect(parseDesktopSettings({ usdToCny: value }).usdToCny).toBe(defaultDesktopSettings.usdToCny)
+  })
   it("uses safe defaults for absent and malformed values", () => {
     expect(parseDesktopSettings(undefined)).toEqual(defaultDesktopSettings)
     expect(parseDesktopSettings({ startup: "bad", theme: "liquid" })).toEqual(defaultDesktopSettings)

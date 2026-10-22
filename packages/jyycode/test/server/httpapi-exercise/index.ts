@@ -1333,6 +1333,28 @@ const scenarios: Scenario[] = [
       check(body.length === 0, "new session should have no messages")
     }),
   http.protected
+    .get("/session/{sessionID}/usage", "session.usage")
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const root = yield* ctx.session({ title: "Agent usage" })
+        const child = yield* ctx.session({ title: "Child usage", parentID: root.id })
+        return { root, child }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/usage", { sessionID: ctx.state.root.id }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body, ctx) => {
+      object(body)
+      check(body.sessionCount === 2, "usage includes root and child")
+      check(
+        Array.isArray(body.sessionIDs) && body.sessionIDs.includes(ctx.state.child.id),
+        "child belongs to usage scope",
+      )
+      check(body.cost === 0, "new sessions have zero cost")
+    }),
+  http.protected
     .get("/session/{sessionID}/message/{messageID}/part/{partID}/attachment", "session.attachment")
     .seeded((ctx) =>
       Effect.gen(function* () {

@@ -10,6 +10,7 @@ import type { CompactionStatus } from "../../data/event-bridge"
 import type { ConversationMessage } from "./conversation-state"
 import { ActivityGroup } from "./activity-group"
 import { MessagePartView } from "./message-part"
+import { TurnChanges, turnChangeSummaries } from "./turn-changes"
 import {
   presentConversationMessages,
   type PresentedConversationMessage,
@@ -218,8 +219,19 @@ function PresentedGroupView(props: {
   messageRole: string
   messageAgent?: string
   pendingActivityKeys: ReadonlySet<string>
+  visibleImages?: ReadonlySet<string>
 }) {
-  const partIDs = createMemo(() => props.group.parts.map((part) => part.id))
+  const partIDs = createMemo(() =>
+    props.group.parts
+      .filter(
+        (part) =>
+          !props.visibleImages ||
+          part.type !== "file" ||
+          !part.mime.startsWith("image/") ||
+          props.visibleImages.has(part.id),
+      )
+      .map((part) => part.id),
+  )
   const partsByID = createMemo(() => new Map(props.group.parts.map((part) => [part.id, part])))
   const pending = () => props.group.type === "activity" && props.pendingActivityKeys.has(groupKey(props.group))
 
@@ -252,6 +264,10 @@ function PresentedMessageView(props: {
   message: PresentedConversationMessage
   pendingActivityKeys: ReadonlySet<string>
   running: boolean
+  allowedImages?: ReadonlySet<string>
+  foldedImageCount: number
+  imagesExpanded: boolean
+  onToggleImages: () => void
 }) {
   const groupKeys = createMemo(() => props.message.groups.map(groupKey))
   const groupsByKey = createMemo(() => new Map(props.message.groups.map((group) => [groupKey(group), group])))
@@ -278,6 +294,7 @@ function PresentedMessageView(props: {
                 messageRole={props.message.info.role}
                 messageAgent={agent()}
                 pendingActivityKeys={props.pendingActivityKeys}
+                visibleImages={props.allowedImages}
               />
             )}
           </For>
@@ -290,17 +307,82 @@ function PresentedMessageView(props: {
           </ActivityGroup>
         </Show>
       </div>
+      <Show when={props.foldedImageCount > 0}>
+        <button
+          class="turn-changes__more"
+          type="button"
+          aria-expanded={props.imagesExpanded}
+          onClick={props.onToggleImages}
+        >
+          {props.imagesExpanded
+            ? tr("conversation.collapse-images")
+            : tr("conversation.more-images", { count: props.foldedImageCount })}
+        </button>
+      </Show>
     </article>
   )
 }
 
 export function MessageTimeline(props: MessageTimelineProps) {
-  const running = () => props.running ?? props.messages.some((m) => m.info.role === "assistant" && m.info.time.completed === undefined)
+  const running = () =>
+    props.running ?? props.messages.some((m) => m.info.role === "assistant" && m.info.time.completed === undefined)
   const [hasNewMessages, setHasNewMessages] = createSignal(false)
   const [oldestVisible, setOldestVisible] = createSignal<{ sessionID: string; messageID: string }>()
   let conversationPainted = false
   const signatureFor = createMessageSignatureTracker()
   const presentedMessages = createMemo(() => presentConversationMessages(props.messages))
+  const turnChanges = createMemo(() => turnChangeSummaries(props.messages, presentedMessages(), running()))
+  const [expandedImageTurns, setExpandedImageTurns] = createSignal<ReadonlySet<string>>(new Set())
+  const imageTurns = createMemo(() => {
+    const turns = new Map<string, string[]>()
+    const parents = new Map<string, string>()
+    for (const message of props.messages)
+      if (message.info.role === "assistant")
+        for (const part of message.parts)
+          if (part.type === "file" && part.mime.startsWith("image/")) {
+            const ids = turns.get(message.info.parentID) ?? []
+            ids.push(part.id)
+            turns.set(message.info.parentID, ids)
+            parents.set(part.id, message.info.parentID)
+          }
+    return { turns, parents }
+  })
+  const allowedImages = createMemo(
+    () =>
+      new Set(
+        [...imageTurns().turns].flatMap(([parent, ids]) => (expandedImageTurns().has(parent) ? ids : ids.slice(0, 4))),
+      ),
+  )
+  const messageImageTurns = (message: PresentedConversationMessage) =>
+    new Set(
+      message.groups
+        .flatMap((group) => group.parts)
+        .flatMap((part) => {
+          const parent = imageTurns().parents.get(part.id)
+          return parent ? [parent] : []
+        }),
+    )
+  const foldedImages = (message: PresentedConversationMessage) =>
+    [...messageImageTurns(message)].reduce((sum, parent) => {
+      const ids = imageTurns().turns.get(parent) ?? []
+      // A turn can span multiple visible assistant groups. Put its single
+      // image disclosure after the final group containing an image.
+      const last = ids.at(-1)
+      return (
+        sum +
+        (message.groups.some((group) => group.parts.some((part) => part.id === last)) ? Math.max(0, ids.length - 4) : 0)
+      )
+    }, 0)
+  const toggleImages = (message: PresentedConversationMessage) =>
+    setExpandedImageTurns((current) => {
+      const next = new Set(current)
+      const parents = [...messageImageTurns(message)]
+      const expanded = parents.every((parent) => next.has(parent))
+      for (const parent of parents)
+        if (expanded) next.delete(parent)
+        else next.add(parent)
+      return next
+    })
   const visibleStartIndex = createMemo(() => {
     const messages = presentedMessages()
     const anchor = oldestVisible()
@@ -323,7 +405,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
   })
   const signature = createMemo(
     () =>
-      `${signatureFor(props.messages)}|goal:${goalMarkers()
+      `${signatureFor(props.messages)}|changes:${[...turnChanges().values()].map((turn) => `${turn.messageID}:${turn.changes.map((change) => `${change.file}:${change.additions}:${change.deletions}:${change.patch?.length ?? 0}`).join(",")}`).join("|")}|goal:${goalMarkers()
         .map((marker) => `${marker.key}:${marker.messageIndex}:${marker.time}:${marker.showOrb}`)
         .join(",")}`,
   )
@@ -494,7 +576,9 @@ export function MessageTimeline(props: MessageTimelineProps) {
                 </Button>
               </Show>
               <For each={markersByMessageIndex().get(-1) ?? []}>
-                {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb && props.running !== false} />}
+                {(marker) => (
+                  <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb && props.running !== false} />
+                )}
               </For>
               <For each={messageIDs()}>
                 {(messageID, index) => (
@@ -503,9 +587,23 @@ export function MessageTimeline(props: MessageTimelineProps) {
                       message={messagesByID().get(messageID)!}
                       pendingActivityKeys={pendingActivityKeys()}
                       running={running()}
+                      allowedImages={
+                        messagesByID().get(messageID)?.info.role === "assistant" ? allowedImages() : undefined
+                      }
+                      foldedImageCount={foldedImages(messagesByID().get(messageID)!)}
+                      imagesExpanded={[...messageImageTurns(messagesByID().get(messageID)!)].every((parent) =>
+                        expandedImageTurns().has(parent),
+                      )}
+                      onToggleImages={() => toggleImages(messagesByID().get(messageID)!)}
                     />
+                    <Show when={turnChanges().get(messageID)}>{(summary) => <TurnChanges summary={summary()} />}</Show>
                     <For each={markersByMessageIndex().get(visibleStartIndex() + index()) ?? []}>
-                      {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb && props.running !== false} />}
+                      {(marker) => (
+                        <GoalTimelineMarker
+                          marker={marker.marker}
+                          showOrb={marker.showOrb && props.running !== false}
+                        />
+                      )}
                     </For>
                   </>
                 )}

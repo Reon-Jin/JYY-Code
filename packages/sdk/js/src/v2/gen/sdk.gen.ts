@@ -282,6 +282,8 @@ import type {
   SessionUnshareResponses,
   SessionUpdateErrors,
   SessionUpdateResponses,
+  SessionUsageErrors,
+  SessionUsageResponses,
   SkillCreateErrors,
   SkillCreateResponses,
   SkillDeleteErrors,
@@ -4988,6 +4990,38 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * Get total agent usage
+   *
+   * Sum durable billed tokens and cost across the full session tree, including archived child sessions.
+   */
+  public usage<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionUsageResponses, SessionUsageErrors, ThrowOnError>({
+      url: "/session/{sessionID}/usage",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Get active context estimate
    *
    * Retrieve a media-aware active context estimate for a session, including decoded media bytes.
@@ -5222,9 +5256,9 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
-   * Read a message image attachment
+   * Read a message media attachment
    *
-   * Serve the persisted image for this exact session, message and part without exposing arbitrary blob or file paths.
+   * Serve persisted image, audio or video bytes for this exact session, message and part without exposing arbitrary blob or file paths.
    */
   public attachment<ThrowOnError extends boolean = false>(
     parameters: {

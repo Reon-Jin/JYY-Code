@@ -265,19 +265,19 @@ describe("Composer", () => {
     const user = userEvent.setup()
     const client = renderComposer()
     const pending = deferred()
-    client.session.promptAsync.mockImplementationOnce(() => pending.promise.then(() => ({data:undefined})))
-    await user.upload(screen.getByLabelText("选择文件"), new File(["first"], "first.txt", {type:"text/plain"}))
-    await user.type(screen.getByRole("textbox", {name:"消息"}), "first")
-    await user.click(screen.getByRole("button", {name:"发送"}))
+    client.session.promptAsync.mockImplementationOnce(() => pending.promise.then(() => ({ data: undefined })))
+    await user.upload(screen.getByLabelText("选择文件"), new File(["first"], "first.txt", { type: "text/plain" }))
+    await user.type(screen.getByRole("textbox", { name: "消息" }), "first")
+    await user.click(screen.getByRole("button", { name: "发送" }))
     await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
-    await user.upload(screen.getByLabelText("选择文件"), new File(["second"], "second.txt", {type:"text/plain"}))
-    fireEvent.input(screen.getByRole("textbox", {name:"消息"}), {target:{value:"next message"}})
+    await user.upload(screen.getByLabelText("选择文件"), new File(["second"], "second.txt", { type: "text/plain" }))
+    fireEvent.input(screen.getByRole("textbox", { name: "消息" }), { target: { value: "next message" } })
     pending.resolve()
-    await waitFor(() => expect(screen.getByRole("list", {name:"附件"})).not.toHaveTextContent("first.txt"))
-    expect(screen.getByRole("list", {name:"附件"})).toHaveTextContent("second.txt")
-    expect(screen.getByRole("textbox", {name:"消息"})).toHaveValue("next message")
+    await waitFor(() => expect(screen.getByRole("list", { name: "附件" })).not.toHaveTextContent("first.txt"))
+    expect(screen.getByRole("list", { name: "附件" })).toHaveTextContent("second.txt")
+    expect(screen.getByRole("textbox", { name: "消息" })).toHaveValue("next message")
     // The controller intentionally persists drafts across unmounts.
-    fireEvent.input(screen.getByRole("textbox", {name:"消息"}), {target:{value:""}})
+    fireEvent.input(screen.getByRole("textbox", { name: "消息" }), { target: { value: "" } })
   })
 
   it("adds files from the attachment picker and sends them with the message", async () => {
@@ -467,7 +467,7 @@ describe("Composer", () => {
     await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
   })
 
-  it("uses the area below the input for root context, reported tokens, and estimated USD cost", () => {
+  it("uses the area below the input for root context, reported tokens, and estimated RMB cost", () => {
     renderComposer({
       permissionControl: <span>权限 自动模式</span>,
       usage: {
@@ -489,7 +489,7 @@ describe("Composer", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent("缓存500")
     expect(screen.getByRole("tooltip")).not.toHaveTextContent("子智能体")
     expect(screen.getByRole("tooltip")).not.toHaveTextContent("工具调用")
-    expect(screen.getByLabelText("会话用量")).toHaveTextContent("$1.2345")
+    expect(screen.getByLabelText("会话用量")).toHaveTextContent("¥8.241645")
   })
 
   it("shows unavailable usage and pricing without false zeroes", () => {
@@ -503,7 +503,7 @@ describe("Composer", () => {
     })
 
     expect(screen.getByLabelText("会话用量")).toHaveTextContent("本会话 Token暂无数据")
-    expect(screen.getByLabelText("会话用量")).toHaveTextContent("预估模型费用暂无费用数据")
+    expect(screen.getByLabelText("会话用量")).toHaveTextContent("预估模型费用（人民币）暂无费用数据")
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
     expect(screen.getByLabelText("会话用量")).not.toHaveTextContent("$0")
   })

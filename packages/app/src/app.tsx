@@ -15,6 +15,7 @@ import { createDesktopNotifications } from "./features/notifications/desktop-not
 import { runDesktopUpdater } from "./features/settings/desktop-updater"
 import { SoundEffectsHost } from "./features/sound-effects/sound-effects-host"
 import { scheduleUIPerformanceReport, startUIPerformanceMonitor } from "./performance/ui-performance"
+import { publishUsdToCny } from "./features/composer/cost-currency"
 
 export type AppProps = {
   bridge?: DesktopBridge
@@ -51,6 +52,7 @@ function DesktopApplication(props: { workspaceLoader?: ProjectWorkspaceLoader })
     void lifecycle
       .start()
       .then(async () => {
+        publishUsdToCny(lifecycle.settings().usdToCny)
         notifications.setPermission(
           await (bridge.getNotificationPermission?.() ?? Promise.resolve("unsupported" as const)).catch(
             () => "default" as const,

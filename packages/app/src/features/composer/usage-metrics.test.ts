@@ -36,6 +36,50 @@ function assistant(id: string, tokens: AssistantMessage["tokens"]): { info: Assi
 }
 
 describe("usage metrics", () => {
+  it("uses server-owned totals for all agents without adding the root's message usage again", () => {
+    const root = session({
+      multiAgent: true,
+      cost: 1,
+      tokens: { input: 100, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+    })
+    const message = assistant("msg_root", { input: 900, output: 100, reasoning: 0, cache: { read: 0, write: 0 } })
+    message.info.usage = {
+      version: 1,
+      context: message.info.tokens,
+      billing: { input: 100, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+      cost: 1,
+    }
+    const metrics = composerUsageMetrics({
+      session: root,
+      messages: [message],
+      contextWindow: 10000,
+      aggregateScope: "tree",
+      treeUsage: {
+        sessionID: root.id,
+        sessionIDs: [root.id, "ses_child"],
+        sessionCount: 2,
+        cost: 3,
+        tokens: { input: 300, output: 30, reasoning: 5, cache: { read: 7, write: 3 } },
+      },
+    })
+    expect(metrics).toMatchObject({
+      contextUsed: 1000,
+      contextPercent: 10,
+      aggregateScope: "tree",
+      agentCount: 2,
+      aggregate: { cost: 3, tokens: { input: 300, output: 30, reasoning: 5, cache: 10, total: 345 } },
+    })
+  })
+  it("does not present root-only totals as a complete multi-agent total while aggregation is unavailable", () => {
+    const metrics = composerUsageMetrics({
+      session: session({ cost: 1 }),
+      messages: [],
+      aggregateScope: "tree",
+      aggregateState: "error",
+    })
+    expect(metrics.aggregate).toBeUndefined()
+    expect(metrics.aggregateState).toBe("error")
+  })
   it("uses the latest non-empty assistant response for current context", () => {
     const messages = [
       assistant("msg_1", { input: 100, output: 20, reasoning: 10, cache: { read: 5, write: 2 } }),

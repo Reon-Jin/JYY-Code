@@ -653,6 +653,28 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     }
 
     const sessionID = url.pathname.match(/^\/session\/([^/]+)/)?.[1]
+    if (sessionID && url.pathname.endsWith("/usage") && request.method === "GET") {
+      const root = sessions.find((candidate) => candidate.id === sessionID)
+      if (!root) return json({ name: "NotFoundError", message: "Session not found" }, 404)
+      const members = new Set([root.id])
+      let size = 0
+      while (size !== members.size) {
+        size = members.size
+        for (const session of sessions) if (session.parentID && members.has(session.parentID)) members.add(session.id)
+      }
+      const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+      let cost = 0
+      for (const session of sessions)
+        if (members.has(session.id)) {
+          tokens.input += session.tokens?.input ?? 0
+          tokens.output += session.tokens?.output ?? 0
+          tokens.reasoning += session.tokens?.reasoning ?? 0
+          tokens.cache.read += session.tokens?.cache.read ?? 0
+          tokens.cache.write += session.tokens?.cache.write ?? 0
+          cost += session.cost ?? 0
+        }
+      return json({ sessionID: root.id, sessionIDs: [...members], sessionCount: members.size, tokens, cost })
+    }
     if (sessionID && request.method === "PATCH") {
       const session = sessions.find((candidate) => candidate.id === sessionID)
       if (!session) return json({ name: "NotFoundError", message: "Session not found" }, 404)
