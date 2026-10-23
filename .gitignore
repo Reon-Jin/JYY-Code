@@ -52,12 +52,15 @@ tsconfig.tsbuildinfo
 /memory/
 /claudecode
 /claude-memory
-/docs
 
 /packages/*/.artifacts/
 /.build
 /.pnpm-store
 /.jyycode/plan
-/docs
+# Keep local documentation ignored, except the event catalog required by CI.
+/docs/*
+!/docs/generated/
+/docs/generated/*
+!/docs/generated/event-catalog.md
 /paper
 texput.log

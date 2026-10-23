@@ -19,6 +19,10 @@ describe("generated runtime artifacts", () => {
   })
 
   test("tracked event catalog and generated SDK are clean", async () => {
+    const ignored = Bun.spawnSync(["git", "check-ignore", "--no-index", "--quiet", "docs/generated/event-catalog.md"], {
+      cwd: rootDir,
+    })
+    expect(ignored.exitCode).toBe(1)
     expect(await verifyEventCatalog({ rootDir, check: true })).toMatchObject({ ok: true })
     expect(await verifyGeneratedSdkLayout(rootDir)).toMatchObject({ ok: true })
     expect(await verifyGeneratedSdkBuild(rootDir)).toMatchObject({ ok: true })
