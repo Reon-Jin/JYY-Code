@@ -309,7 +309,8 @@
 .conversation-markdown {
   min-width: 0;
   color: var(--color-text);
-  font-size: var(--text-md);
+  font-family: "Inter Variable", "KaiTi", "楷体", "STKaiti", "Kaiti SC", serif;
+  font-size: 12px;
   line-height: 1.75;
   overflow-wrap: anywhere;
 }
@@ -339,13 +340,13 @@
   line-height: 1.4;
 }
 .conversation-markdown h1 {
-  font-size: var(--text-xl);
+  font-size: 1.5em;
 }
 .conversation-markdown h2 {
-  font-size: var(--text-lg);
+  font-size: 1.25em;
 }
 .conversation-markdown h3 {
-  font-size: var(--text-md);
+  font-size: 1em;
 }
 .conversation-markdown ul,
 .conversation-markdown ol {
@@ -800,20 +801,21 @@
   display: none;
 }
 .conversation-markdown .markdown-math--display {
-  position: relative;
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-4);
   min-width: 0;
   margin-block: var(--space-4);
-  padding-top: var(--space-5);
+}
+.conversation-markdown .markdown-math__content {
+  min-width: 0;
 }
 .conversation-markdown .markdown-math--display .katex-display {
   margin-block: 0;
-  padding-bottom: var(--space-3);
 }
 .conversation-markdown .markdown-math__copy {
-  position: absolute;
-  top: 0;
-  right: 0;
+  white-space: nowrap;
   font-size: var(--text-xs);
 }
 .markdown-math-pending,
@@ -837,7 +839,7 @@
   display: block;
   color: var(--color-accent);
   margin-bottom: var(--space-1);
-  font-size: var(--text-sm);
+  font-size: 0.875em;
 }
 .markdown-alert[data-kind="warning"],
 .markdown-alert[data-kind="caution"] {
@@ -854,11 +856,11 @@
   margin-top: var(--space-6);
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-3);
-  font-size: var(--text-sm);
+  font-size: 0.875em;
   color: var(--color-text-muted);
 }
 .conversation-markdown .footnotes h2 {
-  font-size: var(--text-sm);
+  font-size: 1em;
   margin-top: 0;
 }
 .conversation-markdown [data-footnote-ref] {

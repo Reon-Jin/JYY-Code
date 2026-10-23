@@ -85,6 +85,19 @@ $$`)
     expect(html).not.toMatch(/onclick|<div/i)
   })
 
+  it.each(["complete", "streaming"] as const)("separates numbered math from its copy control in %s mode", (mode) => {
+    const source = String.raw`\min_{B\in\mathbb{R}^{m\times n}}\|A-B\|_F\quad\text{s.t.}\quad\operatorname{rank}(B)\leq k.\tag{1}`
+    const template = document.createElement("template")
+    template.innerHTML = renderMarkdown(`$$\n${source}\n$$`, mode)
+    const formula = template.content.querySelector(".markdown-math--display")!
+    const content = formula.querySelector(".markdown-math__content")!
+    const copy = formula.querySelector(".markdown-math__copy")!
+    expect(content.querySelector(".tag")?.textContent).toBe("(1)")
+    expect(content.contains(copy)).toBe(false)
+    expect(content.nextElementSibling).toBe(copy)
+    expect(formula.getAttribute("data-tex")?.trim()).toBe(source)
+  })
+
   it.each(["complete", "streaming"] as const)("preserves complex math graphics in %s mode", (mode) => {
     const source = String.raw`\[
 \begin{aligned}

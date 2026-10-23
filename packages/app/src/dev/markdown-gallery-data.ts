@@ -41,6 +41,7 @@ export const gallerySections = [
     title: "复杂数学公式",
     source: [
       "行内公式 $E=mc^2$、\\(\\alpha+\\beta=\\gamma\\)，以及根号 $\\sqrt{x^2+1}$ 与正文保持自然的基线。",
+      "$$\n\\min_{B\\in\\mathbb{R}^{m\\times n}}\\|A-B\\|_F\\quad\\text{s.t.}\\quad\\operatorname{rank}(B)\\leq k.\\tag{1}\n$$",
       "\\[\n\\begin{aligned}\n\\int_{0}^{\\infty} e^{-x^2}\\,dx &= \\frac{\\sqrt{\\pi}}{2} \\\\\n\\sum_{k=1}^{n}k &= \\frac{n(n+1)}{2}\n\\end{aligned}\n\\]",
       "$$\nf(x)=\\begin{cases}\n\\sqrt{x^2+1}, & x\\geq 0 \\\\\n-x, & x<0\n\\end{cases}\n\\qquad\nA=\\begin{pmatrix}1&2&3\\\\4&5&6\\\\7&8&9\\end{pmatrix}\n$$",
       "\\[\n\\underbrace{a_1+a_2+\\cdots+a_n}_{n\\text{ 项}}\\xrightarrow{n\\to\\infty}\\sum_{k=1}^{\\infty}a_k\n\\qquad\n\\det(A-\\lambda I)=0\n\\]",

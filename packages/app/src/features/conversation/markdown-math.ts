@@ -63,7 +63,8 @@ export function mathExtension(): MarkedExtension {
         const copy = token.display
           ? `<button type="button" data-md-action="copy-math" class="markdown-math__copy">${escapeMarkup(tr("conversation.md-copy-math"))}</button>`
           : ""
-        return `<${tag} class="markdown-math${token.display ? " markdown-math--display" : ""}" data-tex="${escapeMarkup(token.text)}">${copy}${html}</${tag}>`
+        const content = token.display ? `<span class="markdown-math__content">${html}</span>${copy}` : html
+        return `<${tag} class="markdown-math${token.display ? " markdown-math--display" : ""}" data-tex="${escapeMarkup(token.text)}">${content}</${tag}>`
       },
     })),
   }
