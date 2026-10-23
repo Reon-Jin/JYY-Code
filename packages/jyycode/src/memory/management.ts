@@ -105,7 +105,19 @@ function userID(entry: Memory.UserMemoryEntry) {
 }
 
 function taskID(entry: Memory.TaskMemoryEntry) {
-  return `tsk_${digest(JSON.stringify(entry))}`
+  // Metadata backfills and disk reloads can change property insertion order.
+  // Hash a fixed field order so unchanged task contents keep the same id.
+  return `tsk_${digest(
+    JSON.stringify({
+      scope: entry.scope,
+      sessionID: entry.sessionID,
+      ...(entry.projectID ? { projectID: entry.projectID } : {}),
+      importance: entry.importance,
+      date: entry.date,
+      keywords: entry.keywords,
+      content: entry.content,
+    }),
+  )}`
 }
 
 function experienceID(entry: ExperienceMemory.ExperienceEntry) {

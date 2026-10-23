@@ -168,6 +168,38 @@ describe("audited memory management storage", () => {
     expect(searched.entries[0]).toMatchObject({ scope: "task", sessionID: "ses_second", keywords: ["附件"] })
   })
 
+  test("preserves legacy task ids after compaction persists backfilled project metadata", async () => {
+    const ctx = await fixture()
+    await fs.writeFile(
+      path.join(ctx.directory, "MEMORY.json"),
+      Memory.serializeStore("memory", [
+        {
+          scope: "memory",
+          sessionID: SessionID.make("ses_legacy"),
+          importance: 6,
+          date: "20260716",
+          keywords: ["设置"],
+          content: "用户要求完成设置，我完成了设置。",
+        },
+      ]),
+    )
+
+    await ctx.run(
+      MemoryManagement.Service.use((management) =>
+        Effect.gen(function* () {
+          const before = yield* management.list({ scope: "task" })
+          expect(before.entries).toHaveLength(1)
+          expect(before.entries[0]).toMatchObject({ projectID: "proj_ses_legacy" })
+          yield* management.compact({ scope: "task" })
+          const after = yield* management.list({ scope: "task" })
+          expect(after.entries).toEqual(before.entries)
+          yield* management.remove({ scope: "task", id: before.entries[0]!.id })
+          expect((yield* management.list({ scope: "task" })).entries).toEqual([])
+        }),
+      ),
+    )
+  })
+
   test("updates and deletes only the exact id and compacts under the shared atomic lock", async () => {
     const ctx = await fixture()
     const created = await ctx.run(
