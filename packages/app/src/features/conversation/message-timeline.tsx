@@ -1,5 +1,5 @@
 import { tr } from "../../i18n/i18n-context"
-import type { Session } from "@jyycode-ai/sdk/v2/client"
+import type { Part, Session } from "@jyycode-ai/sdk/v2/client"
 import { ArrowDown, Check, MessageCircle } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
@@ -237,13 +237,10 @@ function PresentedGroupView(props: {
 
   const parts = () => (
     <For each={partIDs()}>
-      {(partID) => (
-        <MessagePartView
-          part={partsByID().get(partID)!}
-          messageRole={props.messageRole}
-          messageAgent={props.messageAgent}
-        />
-      )}
+      {(partID) => {
+        const part = createMemo<Part>((previous) => partsByID().get(partID) ?? previous, partsByID().get(partID)!)
+        return <MessagePartView part={part()} messageRole={props.messageRole} messageAgent={props.messageAgent} />
+      }}
     </For>
   )
 
@@ -288,15 +285,21 @@ function PresentedMessageView(props: {
       <div class="conversation-message__parts">
         <Show when={!props.message.pendingEmpty}>
           <For each={groupKeys()}>
-            {(key) => (
-              <PresentedGroupView
-                group={groupsByKey().get(key)!}
-                messageRole={props.message.info.role}
-                messageAgent={agent()}
-                pendingActivityKeys={props.pendingActivityKeys}
-                visibleImages={props.allowedImages}
-              />
-            )}
+            {(key) => {
+              const group = createMemo<PresentedMessageGroup>(
+                (previous) => groupsByKey().get(key) ?? previous,
+                groupsByKey().get(key)!,
+              )
+              return (
+                <PresentedGroupView
+                  group={group()}
+                  messageRole={props.message.info.role}
+                  messageAgent={agent()}
+                  pendingActivityKeys={props.pendingActivityKeys}
+                  visibleImages={props.allowedImages}
+                />
+              )
+            }}
           </For>
         </Show>
         <Show when={props.message.pendingEmpty}>
@@ -336,15 +339,28 @@ export function MessageTimeline(props: MessageTimelineProps) {
   const imageTurns = createMemo(() => {
     const turns = new Map<string, string[]>()
     const parents = new Map<string, string>()
-    for (const message of props.messages)
+    const visibleUsers = new Set(
+      presentedMessages()
+        .filter((message) => message.info.role === "user")
+        .map((message) => message.info.id),
+    )
+    const userTurns = new Map<string, string>()
+    let currentUser: string | undefined
+    for (const message of props.messages) {
+      if (message.info.role === "user") {
+        if (visibleUsers.has(message.info.id)) currentUser = message.info.id
+        if (currentUser) userTurns.set(message.info.id, currentUser)
+      }
       if (message.info.role === "assistant")
         for (const part of message.parts)
           if (part.type === "file" && part.mime.startsWith("image/")) {
-            const ids = turns.get(message.info.parentID) ?? []
+            const parent = userTurns.get(message.info.parentID) ?? message.info.parentID
+            const ids = turns.get(parent) ?? []
             ids.push(part.id)
-            turns.set(message.info.parentID, ids)
-            parents.set(part.id, message.info.parentID)
+            turns.set(parent, ids)
+            parents.set(part.id, parent)
           }
+    }
     return { turns, parents }
   })
   const allowedImages = createMemo(
@@ -581,32 +597,40 @@ export function MessageTimeline(props: MessageTimelineProps) {
                 )}
               </For>
               <For each={messageIDs()}>
-                {(messageID, index) => (
-                  <>
-                    <PresentedMessageView
-                      message={messagesByID().get(messageID)!}
-                      pendingActivityKeys={pendingActivityKeys()}
-                      running={running()}
-                      allowedImages={
-                        messagesByID().get(messageID)?.info.role === "assistant" ? allowedImages() : undefined
-                      }
-                      foldedImageCount={foldedImages(messagesByID().get(messageID)!)}
-                      imagesExpanded={[...messageImageTurns(messagesByID().get(messageID)!)].every((parent) =>
-                        expandedImageTurns().has(parent),
-                      )}
-                      onToggleImages={() => toggleImages(messagesByID().get(messageID)!)}
-                    />
-                    <Show when={turnChanges().get(messageID)}>{(summary) => <TurnChanges summary={summary()} />}</Show>
-                    <For each={markersByMessageIndex().get(visibleStartIndex() + index()) ?? []}>
-                      {(marker) => (
-                        <GoalTimelineMarker
-                          marker={marker.marker}
-                          showOrb={marker.showOrb && props.running !== false}
-                        />
-                      )}
-                    </For>
-                  </>
-                )}
+                {(messageID, index) => {
+                  // A lookup can update before Solid disposes the removed keyed
+                  // row. Retain its last value until unmount, also for its children.
+                  const message = createMemo<PresentedConversationMessage>(
+                    (previous) => messagesByID().get(messageID) ?? previous,
+                    messagesByID().get(messageID)!,
+                  )
+                  return (
+                    <>
+                      <PresentedMessageView
+                        message={message()}
+                        pendingActivityKeys={pendingActivityKeys()}
+                        running={running()}
+                        allowedImages={message().info.role === "assistant" ? allowedImages() : undefined}
+                        foldedImageCount={foldedImages(message())}
+                        imagesExpanded={[...messageImageTurns(message())].every((parent) =>
+                          expandedImageTurns().has(parent),
+                        )}
+                        onToggleImages={() => toggleImages(message())}
+                      />
+                      <Show when={turnChanges().get(messageID)}>
+                        {(summary) => <TurnChanges summary={summary()} />}
+                      </Show>
+                      <For each={markersByMessageIndex().get(visibleStartIndex() + index()) ?? []}>
+                        {(marker) => (
+                          <GoalTimelineMarker
+                            marker={marker.marker}
+                            showOrb={marker.showOrb && props.running !== false}
+                          />
+                        )}
+                      </For>
+                    </>
+                  )
+                }}
               </For>
             </div>
           </Show>

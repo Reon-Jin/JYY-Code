@@ -2402,6 +2402,62 @@ it.instance(
   45_000,
 )
 
+it.instance("ignores obsolete and already consumed background completion notifications", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Background notification guards" })
+    yield* llm.text("first task done")
+    const first = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "first task" }],
+    })
+    yield* llm.text("second task done")
+    const second = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "second task" }],
+    })
+    const before = yield* sessions.messages({ sessionID: chat.id })
+    yield* prompt.wake({
+      sessionID: chat.id,
+      kind: "background_process_completed",
+      text: "old command finished",
+      sourceMessageID: first.info.id,
+      processID: "proc_old",
+    })
+    yield* sessions.updatePart({
+      id: PartID.ascending(),
+      messageID: second.info.id,
+      sessionID: chat.id,
+      type: "tool",
+      tool: "process",
+      callID: "call_output",
+      state: {
+        status: "completed",
+        input: { action: "output", id: "proc_consumed" },
+        title: "Process output",
+        output: "completed",
+        metadata: { status: "completed" },
+        time: { start: Date.now(), end: Date.now() },
+      },
+    })
+    yield* prompt.wake({
+      sessionID: chat.id,
+      kind: "background_process_completed",
+      text: "already read command finished",
+      sourceMessageID: second.info.id,
+      processID: "proc_consumed",
+    })
+    expect(yield* llm.calls).toBe(2)
+    expect((yield* sessions.messages({ sessionID: chat.id })).map((message) => message.info.id)).toEqual(
+      before.map((message) => message.info.id),
+    )
+  }),
+)
+
 it.instance(
   "stopping a session kills its yielded bash without waking the Agent",
   () =>

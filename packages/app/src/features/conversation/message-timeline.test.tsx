@@ -51,6 +51,59 @@ function longConversation(count: number): ConversationMessage[] {
 afterEach(cleanup)
 
 describe("MessageTimeline", () => {
+  it("switches a populated conversation to an empty new session without reading removed messages", () => {
+    const [messages, setMessages] = createSignal([
+      conversation(
+        [{ id: "part_old", sessionID, messageID: assistantInfo.id, type: "text", text: "old reply" }],
+        assistantInfo,
+      ),
+    ])
+    render(() => <MessageTimeline messages={messages()} />)
+    expect(screen.getByText("old reply")).toBeVisible()
+    expect(() =>
+      setMessages([
+        conversation(
+          [{ id: "part_other", sessionID: "ses_new", messageID: "msg_new", type: "text", text: "other session" }],
+          { ...info, id: "msg_new", sessionID: "ses_new" },
+        ),
+      ]),
+    ).not.toThrow()
+    expect(screen.getByText("other session")).toBeVisible()
+    expect(() => setMessages([])).not.toThrow()
+    expect(screen.queryByText("old reply")).not.toBeInTheDocument()
+    expect(screen.getByText("还没有消息，从下方开始对话。")).toBeVisible()
+    setMessages([conversation([{ id: "part_new", sessionID, messageID: info.id, type: "text", text: "new request" }])])
+    expect(screen.getByText("new request")).toBeVisible()
+  })
+
+  it("removes replaced activity groups without reading an undefined group", () => {
+    const [messages, setMessages] = createSignal([
+      conversation(
+        [
+          {
+            id: "part_old_reasoning",
+            sessionID,
+            messageID: assistantInfo.id,
+            type: "reasoning",
+            text: "thinking",
+            time: { start: 1 },
+          },
+        ],
+        assistantInfo,
+      ),
+    ])
+    render(() => <MessageTimeline messages={messages()} />)
+    expect(() =>
+      setMessages([
+        conversation(
+          [{ id: "part_new_answer", sessionID, messageID: assistantInfo.id, type: "text", text: "answer" }],
+          assistantInfo,
+        ),
+      ]),
+    ).not.toThrow()
+    expect(screen.getByText("answer")).toBeVisible()
+  })
+
   it("keeps every child chat round visible while hiding follow-up runtime context", () => {
     const [messages, setMessages] = createSignal<ConversationMessage[]>([])
     const { container } = render(() => <MessageTimeline messages={messages()} />)

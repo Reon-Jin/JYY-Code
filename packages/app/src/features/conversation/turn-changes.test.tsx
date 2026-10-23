@@ -46,6 +46,49 @@ const message = (info: UserMessage | AssistantMessage, text: string): Conversati
 })
 
 describe("turn changes", () => {
+  it("anchors images and file changes after the final reply to a hidden background completion", () => {
+    const changes: SnapshotFileDiff[] = [
+      { file: "render.py", additions: 10, deletions: 0, status: "added" },
+      { file: "result.png", additions: 0, deletions: 0, status: "added" },
+    ]
+    const wake = { ...user, id: "msg_wake", time: { created: 4 }, summary: { diffs: [changes[1]!] } }
+    const reply = { ...assistant, id: "msg_final", parentID: wake.id, time: { created: 5, completed: 6 } }
+    const messages = [
+      message({ ...user, summary: { diffs: [changes[0]!] } }, "draw a picture"),
+      message(assistant, "rendering"),
+      {
+        info: wake,
+        parts: [
+          {
+            id: "prt_wake",
+            sessionID: wake.sessionID,
+            messageID: wake.id,
+            type: "text" as const,
+            synthetic: true,
+            text: "Background shell command finished",
+          },
+        ],
+      },
+      message(reply, "delivered"),
+    ]
+    const summaries = turnChangeSummaries(messages, presentConversationMessages(messages), false)
+    expect([...summaries.values()]).toHaveLength(1)
+    expect([...summaries.values()][0]?.changes).toEqual(changes)
+    render(() => (
+      <DataProvider
+        bootstrap={{ baseUrl: "http://desktop.test", username: "test", password: "test" }}
+        directory="C:\\work"
+        generation={0}
+      >
+        <MessageTimeline messages={messages} running={false} />
+      </DataProvider>
+    ))
+    const image = screen.getByRole("img", { name: "result.png" })
+    expect(image).toHaveAttribute("src", expect.stringContaining("result.png"))
+    expect(screen.getByText("delivered").compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByText("Background shell command finished")).not.toBeInTheDocument()
+  })
+
   it("keeps completed file rows, patches, media and focus mounted while the next turn streams", () => {
     const changes = [...diffs.slice(0, 2), { file: "simple.png", additions: 0, deletions: 0, status: "added" as const }]
     const nextUser = { ...user, id: "msg_next_user", time: { created: 4 }, summary: undefined }
@@ -243,9 +286,15 @@ describe("turn changes", () => {
     setRunning(false)
     expect(screen.getAllByRole("region", { name: "本轮文件变更" })).toHaveLength(1)
   })
-  it("shares the four-image budget across different assistant groups in the same user turn", () => {
+  it("shares the four-image budget across assistant groups and hidden wakeups in the same user turn", () => {
+    const wake = { ...user, id: "msg_image_wake", summary: undefined }
     const replies = [0, 1].map((group) => {
-      const info = { ...assistant, id: `msg_images${group}`, agent: group ? "review" : "build" }
+      const info = {
+        ...assistant,
+        id: `msg_images${group}`,
+        agent: group ? "review" : "build",
+        parentID: group ? wake.id : user.id,
+      }
       return {
         info,
         parts: Array.from({ length: 3 }, (_, index) => ({
@@ -260,7 +309,27 @@ describe("turn changes", () => {
       }
     })
     render(() => (
-      <MessageTimeline messages={[message({ ...user, summary: undefined }, "images"), ...replies]} running={false} />
+      <MessageTimeline
+        messages={[
+          message({ ...user, summary: undefined }, "images"),
+          replies[0]!,
+          {
+            info: wake,
+            parts: [
+              {
+                id: "prt_image_wake",
+                sessionID: wake.sessionID,
+                messageID: wake.id,
+                type: "text",
+                text: "Background completed",
+                synthetic: true,
+              },
+            ],
+          },
+          replies[1]!,
+        ]}
+        running={false}
+      />
     ))
     expect(screen.getAllByRole("img")).toHaveLength(4)
     fireEvent.click(screen.getByRole("button", { name: "再显示 2 张图片" }))

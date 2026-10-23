@@ -89,6 +89,7 @@ type Scan = {
   dirs: Set<string>
   patterns: Set<string>
   always: Set<string>
+  waitOnly: boolean
 }
 
 export const log = Log.create({ service: "shell-tool" })
@@ -406,10 +407,30 @@ export const ShellTool = Tool.define(
         dirs: new Set<string>(),
         patterns: new Set<string>(),
         always: new Set<string>(),
+        waitOnly: false,
       }
       const shellKind = ShellID.toKind(Shell.name(shell))
+      const nodes = commands(root)
+      const names = nodes.map((node) => parts(node)[0]?.text.toLowerCase())
+      // A plain timer (optionally printing or inspecting processes) has no
+      // dependent work to resume. Keep loops, scripts and real work notifying.
+      const waits = new Set(["sleep", "start-sleep"])
+      const passive = new Set([
+        ...waits,
+        "echo",
+        "printf",
+        "write-output",
+        "get-process",
+        "select-object",
+        "format-table",
+        "sort-object",
+      ])
+      scan.waitOnly =
+        !/[{}$`]/u.test(root.text) &&
+        waits.has(names[0] ?? "") &&
+        names.every((name) => passive.has(name ?? ""))
 
-      for (const node of commands(root)) {
+      for (const node of nodes) {
         const command = parts(node)
         const tokens = command.map((item) => item.text)
         const cmd = ps || shellKind === "cmd" ? tokens[0]?.toLowerCase() : tokens[0]
@@ -453,6 +474,7 @@ export const ShellTool = Tool.define(
         env: NodeJS.ProcessEnv
         timeout: number
         description: string
+        notifyCompletion: boolean
       },
       ctx: Tool.Context,
     ) {
@@ -576,6 +598,7 @@ export const ShellTool = Tool.define(
                   !done ||
                   done.status === "cancelled" ||
                   done.termination_reason?.startsWith("session_cancelled") ||
+                  (!input.notifyCompletion && (done.status === "completed" || done.status === "timed_out")) ||
                   !ops?.wake
                 )
                   return
@@ -583,13 +606,15 @@ export const ShellTool = Tool.define(
                 yield* ops.wake({
                   sessionID: ctx.sessionID,
                   kind: "background_process_completed",
+                  sourceMessageID: ctx.messageID,
+                  processID: info.id,
                   text: [
                     `Background shell command finished: ${input.description}`,
                     `Command: ${input.command}`,
                     `Process id: ${info.id}`,
                     `Status: ${done.status}; exit: ${done.exit ?? "unknown"}`,
                     out.output,
-                    "Use this result to continue dependent work. Do not rerun a completed command.",
+                    "Continue only if this result requires further work. Do not rerun completed commands, create wait timers, or repeat an answer already delivered.",
                   ].join("\n"),
                 })
               }),
@@ -636,7 +661,7 @@ export const ShellTool = Tool.define(
                 : budgetFor("foreground_shell", params.timeout ?? defaultTimeout)
               const timeout = budget.effectiveMs
               const ps = Shell.ps(shell)
-              yield* Effect.scoped(
+              const notifyCompletion = yield* Effect.scoped(
                 Effect.gen(function* () {
                   const tree = yield* Effect.acquireRelease(parse(params.command, ps), (tree) =>
                     Effect.sync(() => tree.delete()),
@@ -644,6 +669,7 @@ export const ShellTool = Tool.define(
                   const scan = yield* collect(tree.rootNode, cwd, ps, shell, instanceCtx)
                   if (!containsPath(cwd, instanceCtx)) scan.dirs.add(cwd)
                   yield* ask(ctx, scan)
+                  return !scan.waitOnly
                 }),
               )
 
@@ -655,6 +681,7 @@ export const ShellTool = Tool.define(
                   env: yield* shellEnv(ctx, cwd),
                   timeout,
                   description: params.description,
+                  notifyCompletion,
                 },
                 ctx,
               )

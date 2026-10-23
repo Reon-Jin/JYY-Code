@@ -14,6 +14,7 @@ ${commandSection}
 - Waits up to 10 seconds for completion. If still running, returns a process_id and current output while the command continues in the background.
 - The command timeout remains the maximum total runtime, separate from the 10-second foreground wait.
 - Continue independent work after a background return. Completion, exit status, and output will be delivered automatically to this session; do not repeatedly poll or rerun the command.
+- Never launch sleep commands or wait timers to wait for another background command. If no independent work remains, yield and await its automatic completion. Timer-only completions do not resume the Agent.
 - Only start dependent operations after the command has completed successfully. Use the process tool output/kill actions with process_id when you need to inspect or stop it.
 - Stopping the session also terminates its background commands.
 

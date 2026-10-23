@@ -134,6 +134,62 @@ it.instance(
 )
 
 it.instance(
+  "keeps background completions and their generated PNG in the original user turn",
+  () =>
+    Effect.gen(function* () {
+      const { directory } = yield* TestInstance
+      const fs = yield* AppFileSystem.Service
+      const snapshot = yield* Snapshot.Service
+      const sessions = yield* Session.Service
+      const summary = yield* SessionSummary.Service
+      const session = yield* sessions.create()
+      const start = (yield* snapshot.track())!
+      yield* fs.writeWithDirs(path.join(directory, "render.py"), "print('render')\n")
+      const launched = (yield* snapshot.track())!
+      const user = yield* round(session, start, launched)
+      yield* summary.summarize({ sessionID: session.id, messageID: user.id })
+
+      // The background renderer finishes between assistant steps, before the
+      // completion wakeup's first snapshot. Its output belongs to the same turn.
+      yield* fs.writeWithDirs(path.join(directory, "result.png"), new Uint8Array([0, 1, 2]))
+      const rendered = (yield* snapshot.track())!
+      const wake = yield* round(session, rendered, rendered)
+      yield* sessions.updatePart({
+        id: PartID.ascending(),
+        sessionID: session.id,
+        messageID: wake.id,
+        type: "text",
+        text: "Background shell command finished",
+        synthetic: true,
+        metadata: { kind: "background_process_completed" },
+      })
+      yield* summary.summarize({ sessionID: session.id, messageID: wake.id })
+
+      const names = (diffs: Snapshot.FileDiff[]) => diffs.map((diff) => diff.file)
+      expect(names(yield* summary.diff({ sessionID: session.id }))).toEqual(["render.py", "result.png"])
+      expect(names(yield* summary.diff({ sessionID: session.id, messageID: wake.id }))).toEqual([
+        "render.py",
+        "result.png",
+      ])
+      const history = yield* sessions.messages({ sessionID: session.id })
+      const original = history.find((message) => message.info.id === user.id)
+      expect(original?.info.role === "user" && names(original.info.summary?.diffs ?? [])).toEqual([
+        "render.py",
+        "result.png",
+      ])
+
+      const next = yield* round(session, rendered, rendered)
+      yield* summary.summarize({ sessionID: session.id, messageID: next.id })
+      expect(yield* summary.diff({ sessionID: session.id })).toEqual([])
+      expect(names(yield* summary.diff({ sessionID: session.id, messageID: user.id }))).toEqual([
+        "render.py",
+        "result.png",
+      ])
+    }),
+  30_000,
+)
+
+it.instance(
   "Git default diffs retain the aggregate while explicit turns stay isolated",
   () =>
     Effect.gen(function* () {

@@ -202,6 +202,8 @@ export interface Interface {
     text: string
     kind: string
     visibleText?: string
+    sourceMessageID?: MessageID
+    processID?: string
   }) => Effect.Effect<MessageV2.WithParts>
   readonly prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts, Image.Error>
   readonly loop: (input: LoopInput) => Effect.Effect<MessageV2.WithParts>
@@ -473,7 +475,7 @@ export const layer = Layer.effect(
         resolvePromptParts: (template: string) => resolvePromptParts(template),
         prompt: (input: PromptInput) => prompt(input).pipe(Effect.catch(Effect.die)),
         loop: (input: LoopInput) => loop(input),
-        wake: (input: { sessionID: SessionID; text: string; kind: string; visibleText?: string }) => wake(input),
+        wake: (input: Parameters<TaskPromptOps["wake"]>[0]) => wake(input),
       } satisfies TaskPromptOps
     })
 
@@ -491,8 +493,45 @@ export const layer = Layer.effect(
       text: string
       kind: string
       visibleText?: string
+      sourceMessageID?: MessageID
+      processID?: string
     }) {
       const messages = yield* MessageV2.filterCompactedEffect(input.sessionID)
+      if (input.kind === "background_process_completed") {
+        // The launching step may have been compacted while the command ran.
+        const history = yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)
+        const sourceIndex = history.findIndex((message) => message.info.id === input.sourceMessageID)
+        const superseded =
+          input.sourceMessageID &&
+          (sourceIndex === -1 ||
+            history
+              .slice(sourceIndex + 1)
+              .some(
+                (message) =>
+                  message.info.role === "user" &&
+                  message.parts.some(
+                    (part) =>
+                      (part.type === "text" && !part.synthetic) ||
+                      part.type === "file" ||
+                      part.type === "agent" ||
+                      part.type === "subtask",
+                  ),
+              ))
+        const consumed =
+          input.processID &&
+          history.some((message) =>
+            message.parts.some(
+              (part) =>
+                part.type === "tool" &&
+                part.tool === "process" &&
+                part.state.status === "completed" &&
+                part.state.input.action === "output" &&
+                part.state.input.id === input.processID &&
+                ["completed", "error", "cancelled", "timed_out", "kill_failed"].includes(part.state.metadata.status),
+            ),
+          )
+        if (superseded || consumed) return yield* lastAssistant(input.sessionID)
+      }
       const lastUser = messages.findLast((message) => message.info.role === "user")
       if (!lastUser || lastUser.info.role !== "user") {
         throw new Error(`Cannot wake session without a prior user message: ${input.sessionID}`)

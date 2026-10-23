@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Cause, Deferred, Effect, Exit, Layer } from "effect"
+import { Cause, Deferred, Effect, Exit, Layer, Option } from "effect"
 import type * as Scope from "effect/Scope"
 import os from "os"
 import path from "path"
@@ -43,6 +43,31 @@ const initShell = Effect.fn("ShellToolTest.init")(function* () {
 const initBash = initShell
 
 describe("tool.shell background", () => {
+  it.instance(
+    "does not wake an Agent when a plain waiting timer finishes",
+    () =>
+      Effect.gen(function* () {
+        const notified = yield* Deferred.make<void>()
+        const result = yield* run(
+          {
+            command: process.platform === "win32" ? 'Start-Sleep -Milliseconds 11000; "ok"' : "sleep 11; echo ok",
+            description: "Wait timer",
+            timeout: 30_000,
+          },
+          {
+            ...ctx,
+            extra: { promptOps: { wake: () => Deferred.succeed(notified, undefined) } },
+          },
+        )
+        expect(result.metadata.background).toBe(true)
+        const done = yield* (yield* BackgroundProcess.Service).wait({ id: result.metadata.process_id })
+        expect(done?.status).toBe("completed")
+        expect(Option.isNone(yield* Deferred.await(notified).pipe(Effect.timeoutOption("300 millis")))).toBe(true)
+      }),
+    { config: { shell: process.platform === "win32" ? "powershell.exe" : "/bin/bash" } },
+    30_000,
+  )
+
   it.instance(
     "yields after 10 seconds, permits independent work and sends one completion notification",
     () =>

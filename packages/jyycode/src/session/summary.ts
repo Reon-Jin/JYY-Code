@@ -78,6 +78,36 @@ function unquoteGitPath(input: string) {
   return Buffer.from(bytes).toString()
 }
 
+/** Synthetic wakeups continue the latest user request; they do not start a new delivery turn. */
+function summaryTurn(all: MessageV2.WithParts[], messageID?: MessageID) {
+  const owners = new Map<MessageID, MessageID>()
+  let current: MessageID | undefined
+  for (const message of all) {
+    if (message.info.role !== "user") continue
+    if (
+      message.parts.length === 0 ||
+      message.parts.some(
+        (part) =>
+          (part.type === "text" && !part.synthetic) ||
+          part.type === "file" ||
+          part.type === "agent" ||
+          part.type === "subtask",
+      )
+    )
+      current = message.info.id
+    owners.set(message.info.id, current ?? message.info.id)
+  }
+  const id = messageID ? owners.get(messageID) : current
+  return {
+    target: all.find((message) => message.info.id === id && message.info.role === "user"),
+    messages: id
+      ? all.filter(
+          (message) => owners.get(message.info.role === "user" ? message.info.id : message.info.parentID) === id,
+        )
+      : [],
+  }
+}
+
 export interface Interface {
   readonly summarize: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<void>
   readonly diff: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Snapshot.FileDiff[]>
@@ -132,10 +162,7 @@ export const layer = Layer.effect(
       })
       yield* storage.write(["session_diff", input.sessionID], diffs).pipe(Effect.ignore)
 
-      const messages = all.filter(
-        (m) => m.info.id === input.messageID || (m.info.role === "assistant" && m.info.parentID === input.messageID),
-      )
-      const target = messages.find((m) => m.info.id === input.messageID)
+      const { messages, target } = summaryTurn(all, input.messageID)
       if (!target || target.info.role !== "user") return
       const msgDiffs = limitSummaryPatches(yield* computeDiff({ messages }))
       target.info.summary = { ...target.info.summary, diffs: msgDiffs }
@@ -152,22 +179,14 @@ export const layer = Layer.effect(
       const instance = yield* InstanceState.context
       if (input.messageID || instance.project.vcs !== "git") {
         const messages = yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)
-        const messageID = input.messageID ?? messages.findLast((message) => message.info.role === "user")?.info.id
-        const user = messages.find((message) => message.info.id === messageID && message.info.role === "user")
+        const { target: user, messages: turn } = summaryTurn(messages, input.messageID)
         if (input.messageID && !user) return []
         if (user?.info.role === "user" && user.info.summary?.diffs)
           return user.info.summary.diffs.map((item) => ({
             ...item,
             ...(item.file ? { file: unquoteGitPath(item.file) } : {}),
           }))
-        if (user)
-          return yield* computeDiff({
-            messages: messages.filter(
-              (message) =>
-                message.info.id === messageID ||
-                (message.info.role === "assistant" && message.info.parentID === messageID),
-            ),
-          })
+        if (user) return yield* computeDiff({ messages: turn })
       }
       const diffs = yield* storage
         .read<Snapshot.FileDiff[]>(["session_diff", input.sessionID])

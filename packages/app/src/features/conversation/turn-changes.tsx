@@ -35,12 +35,30 @@ export function turnChangeSummaries(
   }
   const lastUser = [...visibleUsers].at(-1)
   const assistants = new Map<string, ConversationMessage[]>()
-  for (const message of messages)
-    if (message.info.role === "assistant") {
-      const list = assistants.get(message.info.parentID) ?? []
-      list.push(message)
-      assistants.set(message.info.parentID, list)
+  const userTurns = new Map<string, string>()
+  const continuationMedia = new Map<string, Map<string, SnapshotFileDiff>>()
+  let currentUser: string | undefined
+  for (const message of messages) {
+    if (message.info.role === "user") {
+      if (visibleUsers.has(message.info.id)) currentUser = message.info.id
+      if (currentUser) userTurns.set(message.info.id, currentUser)
+      // Older builds stored generated media on hidden wakeup summaries. Keep
+      // those delivered files visible when reopening an existing conversation.
+      if (currentUser && !visibleUsers.has(message.info.id)) {
+        const media = continuationMedia.get(currentUser) ?? new Map<string, SnapshotFileDiff>()
+        for (const change of message.info.summary?.diffs ?? [])
+          if (change.file && ["image", "video", "audio"].includes(previewKind(change.file)))
+            media.set(change.file, change)
+        continuationMedia.set(currentUser, media)
+      }
     }
+    if (message.info.role === "assistant") {
+      const parent = userTurns.get(message.info.parentID) ?? message.info.parentID
+      const list = assistants.get(parent) ?? []
+      list.push(message)
+      assistants.set(parent, list)
+    }
+  }
   const result = new Map<string, TurnChangeSummary>()
   for (const message of messages) {
     if (message.info.role !== "user" || !visibleUsers.has(message.info.id) || message.info.summary?.diffs === undefined)
@@ -69,9 +87,13 @@ export function turnChangeSummaries(
     const inlineMedia = replies
       .flatMap((reply) => reply.parts)
       .filter((part) => part.type === "file" && /^(image|audio|video)\//.test(part.mime))
-    const changes = message.info.summary.diffs.filter(
-      (change) => !change.file?.replaceAll("\\", "/").split("/").includes(".jyycode"),
-    )
+    const listed = new Set(message.info.summary.diffs.map((change) => change.file))
+    const changes = [
+      ...message.info.summary.diffs,
+      ...[...(continuationMedia.get(message.info.id)?.values() ?? [])].filter(
+        (change) => !listed.has(change.file) && change.status !== "deleted",
+      ),
+    ].filter((change) => !change.file?.replaceAll("\\", "/").split("/").includes(".jyycode"))
     if (changes.length === 0) continue
     result.set(anchor, {
       messageID: message.info.id,

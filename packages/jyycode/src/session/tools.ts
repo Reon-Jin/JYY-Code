@@ -16,7 +16,7 @@ import path from "node:path"
 import { MessageV2 } from "./message-v2"
 import * as Session from "./session"
 import { SessionProcessor } from "./processor"
-import { PartID, type SessionID } from "./schema"
+import { PartID, type SessionID, type MessageID } from "./schema"
 import type { Info as SessionStatusInfo } from "./status"
 import type { SessionPrompt } from "./prompt"
 import * as Log from "@jyycode-ai/core/util/log"
@@ -525,6 +525,8 @@ export interface TaskPromptOps {
     text: string
     kind: string
     visibleText?: string
+    sourceMessageID?: MessageID
+    processID?: string
   }): Effect.Effect<MessageV2.WithParts>
   /** Runtime-injected run id for the file-backed Report protocol. */
   agentRunID?: string
