@@ -310,7 +310,7 @@
   min-width: 0;
   color: var(--color-text);
   font-family: "Inter Variable", "KaiTi", "楷体", "STKaiti", "Kaiti SC", serif;
-  font-size: 12px;
+  font-size: 16px;
   line-height: 1.75;
   overflow-wrap: anywhere;
 }
