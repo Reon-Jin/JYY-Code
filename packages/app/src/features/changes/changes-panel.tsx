@@ -9,6 +9,7 @@ import { Spinner } from "../../components/ui/spinner"
 import { useData } from "../../data/context"
 import type { FileOpenEvent } from "../files/file-tree"
 import { ChangeFile } from "./change-file"
+import { isExcludedChange } from "./change-filter"
 import { changesQueryOptions } from "./changes-query"
 import "./changes-panel.css"
 
@@ -154,8 +155,7 @@ function displayableChanges(
 ) {
   return (changes ?? []).flatMap((change) => {
     if (change.file === undefined) return []
-    const segments = change.file.replaceAll("\\", "/").split("/")
-    if (segments.includes(".jyycode")) return []
+    if (isExcludedChange(change.file)) return []
     return [{ ...change, file: change.file }]
   })
 }

@@ -235,3 +235,13 @@ test("keeps diff metadata while bounding patches stored in session summaries", (
     status: "modified",
   })
 })
+
+test("excludes environment files before allocating the summary patch budget", () => {
+  const output = { file: "drawing.py", patch: "render", additions: 12, deletions: 0 }
+  expect(limitSummaryPatches([
+    { file: ".temp/paintvenv/Lib/site-packages/PIL/Image.py", patch: "x".repeat(MAX_SUMMARY_PATCH_BYTES), additions: 10000, deletions: 0 },
+    { file: "node_modules/pkg/index.js", additions: 100, deletions: 0 },
+    { file: "__pycache__/drawing.pyc", additions: 0, deletions: 0 },
+    output,
+  ])).toEqual([output])
+})

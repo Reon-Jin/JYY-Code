@@ -23,6 +23,27 @@ const SNAPSHOT_BATCH_BOUNDARY = 100
 const OVER_BATCH_COUNT = SNAPSHOT_BATCH_BOUNDARY + 1
 const MIXED_BATCH_GROUP_COUNT = Math.ceil(OVER_BATCH_COUNT / 4)
 
+for (const git of [false, true]) {
+  it.instance(`excludes temporary dependencies and caches from ${git ? "Git" : "non-Git"} snapshots`, () =>
+    Effect.gen(function* () {
+      const { directory } = yield* TestInstance
+      const snapshot = yield* Snapshot.Service
+      const before = (yield* snapshot.track())!
+      const noise = [".temp/paintvenv/Lib/site-packages/PIL/Image.py", "node_modules/pkg/index.js",
+        ".venv/pyvenv.cfg", "__pycache__/drawing.pyc", ".jyycode/context/state.json"]
+      for (const file of noise) yield* write(path.join(directory, file), "generated\n")
+      const delivered = [".env.example", "dist/app.js", "drawing.png", "drawing.py"]
+      for (const file of delivered) yield* write(path.join(directory, file), "delivered\n")
+      const after = (yield* snapshot.track())!
+      expect((yield* snapshot.diffFull(before, after)).map((diff) => diff.file).sort()).toEqual(delivered)
+      expect((yield* snapshot.patch(before)).files.sort()).toEqual(delivered.map((file) => fwd(directory, file)).sort())
+      expect(yield* exists(path.join(directory, noise[0]!))).toBe(true)
+    }),
+    { git },
+    30_000,
+  )
+}
+
 afterEach(async () => {
   await disposeAllInstances()
 })

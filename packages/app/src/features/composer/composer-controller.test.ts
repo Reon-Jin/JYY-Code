@@ -133,6 +133,47 @@ describe("createComposerController", () => {
     expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
 
+  it("clears a submitted Skill draft while its command is still running", async () => {
+    const { client, controller } = setup()
+    const pending = deferred()
+    client.session.command.mockImplementationOnce(() => pending.promise.then(() => ({ data: undefined })))
+    const sent = controller.send("/pdf polish this report")
+    await Promise.resolve()
+    expect(client.session.command).toHaveBeenCalledTimes(1)
+    const duringExecution = controller.draft()
+    pending.resolve()
+    await sent
+    expect(duringExecution).toBe("")
+    expect(controller.draft()).toBe("")
+  })
+
+  it("restores a Skill draft if its request fails", async () => {
+    const { client, controller } = setup()
+    client.session.command.mockRejectedValueOnce(new Error("offline"))
+    await expect(controller.send("/pdf polish this report")).rejects.toThrow("offline")
+    expect(controller.draft()).toBe("/pdf polish this report")
+    await controller.retry()
+    expect(client.session.command).toHaveBeenCalledTimes(2)
+    expect(controller.draft()).toBe("")
+  })
+
+  it.each(["success", "failure"])("preserves a newer draft after a pending Skill command's %s", async (outcome) => {
+    const { client, controller } = setup()
+    const pending = deferred()
+    client.session.command.mockImplementationOnce(async () => {
+      await pending.promise
+      if (outcome === "failure") throw new Error("offline")
+      return { data: undefined }
+    })
+    const sent = controller.send("/pdf polish this report")
+    const settled = outcome === "failure" ? expect(sent).rejects.toThrow("offline") : sent
+    await Promise.resolve()
+    controller.setDraft("new unsent draft")
+    pending.resolve()
+    await settled
+    expect(controller.draft()).toBe("new unsent draft")
+  })
+
   it("keeps the draft when submission fails and retries through send", async () => {
     const { client, controller } = setup()
     client.session.promptAsync.mockRejectedValueOnce(new Error("offline"))

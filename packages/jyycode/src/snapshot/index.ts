@@ -10,6 +10,7 @@ import { Hash } from "@jyycode-ai/core/util/hash"
 import { Config } from "@/config/config"
 import { Global } from "@jyycode-ai/core/global"
 import * as Log from "@jyycode-ai/core/util/log"
+import { changeExclusionPatterns, isExcludedChange } from "./excludes"
 
 export const Patch = Schema.Struct({
   hash: Schema.String,
@@ -121,6 +122,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
 
           const ignore = Effect.fnUntraced(function* (files: string[]) {
             if (!files.length) return new Set<string>()
+            const ignored = new Set(files.filter(isExcludedChange))
             if (state.vcs === "git") {
               const check = yield* git(
                 [
@@ -139,7 +141,8 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
                   stdin: feed(files),
                 },
               )
-              if (check.code === 0 || check.code === 1) return new Set(check.text.split("\0").filter(Boolean))
+              if (check.code === 0 || check.code === 1)
+                return new Set([...ignored, ...check.text.split("\0").filter(Boolean)])
             }
 
             const matcher = createIgnore()
@@ -147,7 +150,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
               const text = yield* read(path.join(state.worktree, name))
               if (text) matcher.add(text)
             }
-            return new Set(files.filter((file) => matcher.ignores(file.replaceAll("\\", "/"))))
+            return new Set([...ignored, ...files.filter((file) => matcher.ignores(file.replaceAll("\\", "/")))])
           })
 
           const drop = Effect.fnUntraced(function* (files: string[]) {
@@ -203,6 +206,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
             const file = yield* excludes()
             const target = path.join(state.gitdir, "info", "exclude")
             const text = [
+              ...changeExclusionPatterns,
               file ? (yield* read(file)).trimEnd() : "",
               ...list.map((item) => `/${item.replaceAll("\\", "/")}`),
             ]

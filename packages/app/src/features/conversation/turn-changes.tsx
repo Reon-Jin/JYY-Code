@@ -4,6 +4,7 @@ import { createMemo, createSignal, For, Show } from "solid-js"
 import { useOptionalData } from "../../data/context"
 import { tr } from "../../i18n/i18n-context"
 import { ChangeFile } from "../changes/change-file"
+import { isExcludedChange } from "../changes/change-filter"
 import { previewKind } from "../files/file-types"
 import { MediaPreview } from "./media-preview"
 import type { ConversationMessage } from "./conversation-state"
@@ -93,7 +94,7 @@ export function turnChangeSummaries(
       ...[...(continuationMedia.get(message.info.id)?.values() ?? [])].filter(
         (change) => !listed.has(change.file) && change.status !== "deleted",
       ),
-    ].filter((change) => !change.file?.replaceAll("\\", "/").split("/").includes(".jyycode"))
+    ].filter((change) => !isExcludedChange(change.file))
     if (changes.length === 0) continue
     result.set(anchor, {
       messageID: message.info.id,
@@ -113,10 +114,12 @@ export function TurnChanges(props: { summary: TurnChangeSummary }) {
   const [showAllMedia, setShowAllMedia] = createSignal(false)
   const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set())
   const changes = createMemo<VcsFileDiff[]>(() =>
-    props.summary.changes.map((change) => ({
-      ...change,
-      file: change.file ?? tr("conversation.file-name-unavailable"),
-    })),
+    props.summary.changes
+      .filter((change) => !isExcludedChange(change.file))
+      .map((change) => ({
+        ...change,
+        file: change.file ?? tr("conversation.file-name-unavailable"),
+      })),
   )
   const visible = () => (showAll() ? changes() : changes().slice(0, 5))
   const changesByFile = createMemo(() => new Map(changes().map((change) => [change.file, change])))

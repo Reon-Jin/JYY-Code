@@ -46,6 +46,25 @@ const message = (info: UserMessage | AssistantMessage, text: string): Conversati
 })
 
 describe("turn changes", () => {
+  it("removes thousands of saved environment files from file counts, line totals and rows", () => {
+    const delivered: SnapshotFileDiff[] = [
+      { file: "drawing.py", additions: 12, deletions: 0, status: "added" },
+      { file: "drawing.png", additions: 0, deletions: 0, status: "added" },
+    ]
+    const noisy: SnapshotFileDiff[] = [
+      ...Array.from({ length: 2466 }, (_, i) => ({ file: `.temp/paintvenv/Lib/site-packages/pkg/file${i}.py`, additions: 100, deletions: 0, status: "added" as const })),
+      ...delivered,
+    ]
+    const messages = [message({ ...user, summary: { diffs: noisy } }, "draw"), message(assistant, "done")]
+    expect([...turnChangeSummaries(messages, presentConversationMessages(messages), false).values()][0]?.changes).toEqual(delivered)
+    render(() => <TurnChanges summary={{ messageID: user.id, changes: noisy }} />)
+    expect(screen.getByText("已更改 2 个文件")).toBeVisible()
+    expect(screen.getAllByRole("listitem")).toHaveLength(2)
+    expect(screen.getByRole("region", { name: "本轮文件变更" }).querySelector("header .change-file__stat b")).toHaveTextContent("+12")
+    expect(screen.queryByRole("button", { name: /paintvenv/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /再显示/ })).not.toBeInTheDocument()
+  })
+
   it("anchors images and file changes after the final reply to a hidden background completion", () => {
     const changes: SnapshotFileDiff[] = [
       { file: "render.py", additions: 10, deletions: 0, status: "added" },

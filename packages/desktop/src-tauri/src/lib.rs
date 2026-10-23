@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod backend;
+mod external_url;
 mod notifications;
 mod project_path;
 mod text_file;
@@ -23,6 +24,7 @@ pub fn run() {
             backend::desktop_bootstrap,
             backend::restart_backend,
             backend::stop_backend_for_update,
+            external_url::open_external_url,
             notifications::send_desktop_notification,
             project_path::create_project_directory,
             project_path::reveal_config_file,

@@ -44,7 +44,7 @@ import { tr } from "../../i18n/i18n-context"
 import { createFileApi, fileContentQueryOptions } from "./file-query"
 import { isDeletedChange, isEditableText, previewKind, type PreviewKind } from "./file-types"
 import { oldContentFromUnifiedDiff } from "../changes/unified-diff"
-import { renderMarkdown } from "../conversation/markdown"
+import { MarkdownView } from "../conversation/markdown-view"
 import { completeUIPerformanceStage } from "../../performance/ui-performance"
 import {
   base64FromBytes,
@@ -1690,10 +1690,14 @@ export function FilePreview(props: FilePreviewProps) {
                   <Show when={showMarkdownPreview()}>
                     <PreviewHeader path={props.path} onClose={props.onClose} toolbar={textPreviewToolbar} readOnly />
                     <div class="file-preview__markdown-viewport">
-                      <article
-                        class="file-preview__markdown conversation-markdown"
-                        innerHTML={renderMarkdown(draft())}
-                      />
+                      <article class="file-preview__markdown">
+                        <MarkdownView
+                          source={draft()}
+                          basePath={props.path}
+                          directory={props.directory}
+                          workspaceID={props.workspaceID}
+                        />
+                      </article>
                     </div>
                   </Show>
                   <Show when={showHtmlPreview()}>

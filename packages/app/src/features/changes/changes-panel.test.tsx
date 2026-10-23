@@ -82,11 +82,14 @@ describe("ChangesPanel", () => {
     render(() => (
       <ChangesPanelView
         directory={directory}
-        changes={[...changes, { file: ".jyycode/plan/plan.json", status: "added", additions: 10, deletions: 0 }]}
+        changes={[...changes,
+          ...[".jyycode/plan/plan.json", ".temp/paintvenv/Lib/site-packages/PIL/Image.py", "node_modules/pkg/index.js", ".venv/pyvenv.cfg", "__pycache__/drawing.pyc"].map((file) => ({ file, status: "added" as const, additions: 1000, deletions: 0 })),
+        ]}
       />
     ))
 
     expect(screen.queryByRole("button", { name: /\.jyycode/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /paintvenv|node_modules|__pycache__|pyvenv/ })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /src\/app\.ts/ })).toBeVisible()
     expect(screen.getByRole("button", { name: /assets\/image\.png/ })).toBeVisible()
   })

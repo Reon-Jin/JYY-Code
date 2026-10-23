@@ -102,6 +102,7 @@ export function createComposerController(input: ComposerControllerInput) {
     setFailure(undefined)
     setSending(true)
     const task = Promise.resolve().then(async () => {
+      let clearedVersion: number | undefined
       try {
         const directory = requestDirectory()
         const sessionID = resolve(input.sessionID)
@@ -109,6 +110,12 @@ export function createComposerController(input: ComposerControllerInput) {
         const model = selection?.model ?? resolve(input.model)
         const command = attachments.length === 0 ? slashCommand(text) : undefined
         if (command) {
+          // Commands return after the whole Agent turn, unlike promptAsync.
+          // Clear on dispatch and restore on failure only if no newer draft exists.
+          if (!disposed && ownsDraft && draftVersion === submittedVersion) {
+            setDraft("")
+            clearedVersion = draftVersion
+          }
           await input.client.session.command(
             {
               directory,
@@ -140,6 +147,7 @@ export function createComposerController(input: ComposerControllerInput) {
         }
       } catch (cause) {
         if (!disposed) {
+          if (clearedVersion !== undefined && draftVersion === clearedVersion) setDraft(text)
           setLastFailedDraft(text)
           lastFailedAttachments = attachments
           lastFailedMode = "prompt"

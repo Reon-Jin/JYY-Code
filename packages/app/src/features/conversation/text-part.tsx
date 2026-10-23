@@ -1,16 +1,9 @@
 import type { TextPart } from "@jyycode-ai/sdk/v2/client"
-import { createEffect, createMemo, createSignal, Index, onCleanup } from "solid-js"
-import { renderMarkdownBlocks } from "./markdown"
-import { patchMarkdown } from "./markdown-dom"
+import { createEffect, createSignal, onCleanup } from "solid-js"
+import { MarkdownView } from "./markdown-view"
 import { incrementUIPerformanceCounter } from "../../performance/ui-performance"
 
 const STREAMING_RENDER_INTERVAL_MS = 32
-
-function MarkdownBlock(props: { html: string }) {
-  let host!: HTMLDivElement
-  createEffect(() => patchMarkdown(host, props.html))
-  return <div class="conversation-markdown__block" ref={host} />
-}
 
 export function TextPartView(props: { part: TextPart }) {
   const [source, setSource] = createSignal(props.part.text)
@@ -57,13 +50,5 @@ export function TextPartView(props: { part: TextPart }) {
   })
 
   onCleanup(cancel)
-  const blocks = createMemo(() =>
-    renderMarkdownBlocks(source(), props.part.time?.end === undefined ? "streaming" : "complete"),
-  )
-
-  return (
-    <div class="conversation-markdown">
-      <Index each={blocks()}>{(html) => <MarkdownBlock html={html()} />}</Index>
-    </div>
-  )
+  return <MarkdownView source={source()} mode={props.part.time?.end === undefined ? "streaming" : "complete"} />
 }

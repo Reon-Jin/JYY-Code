@@ -1,6 +1,7 @@
 import { Effect, Layer, Context, Schema } from "effect"
 import { Bus } from "@/bus"
 import { Snapshot } from "@/snapshot"
+import { isExcludedChange } from "@/snapshot/excludes"
 import { Storage } from "@/storage/storage"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
@@ -13,13 +14,15 @@ export const MAX_SUMMARY_PATCH_BYTES = 512 * 1024
 
 export function limitSummaryPatches(diffs: Snapshot.FileDiff[]): Snapshot.FileDiff[] {
   let remaining = MAX_SUMMARY_PATCH_BYTES
-  return diffs.map((diff) => {
-    if (!diff.patch) return diff
-    const size = Buffer.byteLength(diff.patch, "utf8")
-    if (size > remaining) return { ...diff, patch: undefined }
-    remaining -= size
-    return diff
-  })
+  return diffs
+    .filter((diff) => !isExcludedChange(diff.file))
+    .map((diff) => {
+      if (!diff.patch) return diff
+      const size = Buffer.byteLength(diff.patch, "utf8")
+      if (size > remaining) return { ...diff, patch: undefined }
+      remaining -= size
+      return diff
+    })
 }
 
 function unquoteGitPath(input: string) {
@@ -182,22 +185,26 @@ export const layer = Layer.effect(
         const { target: user, messages: turn } = summaryTurn(messages, input.messageID)
         if (input.messageID && !user) return []
         if (user?.info.role === "user" && user.info.summary?.diffs)
-          return user.info.summary.diffs.map((item) => ({
-            ...item,
-            ...(item.file ? { file: unquoteGitPath(item.file) } : {}),
-          }))
+          return user.info.summary.diffs
+            .filter((item) => !isExcludedChange(item.file))
+            .map((item) => ({
+              ...item,
+              ...(item.file ? { file: unquoteGitPath(item.file) } : {}),
+            }))
         if (user) return yield* computeDiff({ messages: turn })
       }
       const diffs = yield* storage
         .read<Snapshot.FileDiff[]>(["session_diff", input.sessionID])
         .pipe(Effect.catch(() => Effect.succeed([] as Snapshot.FileDiff[])))
-      const next = diffs.map((item) => {
-        if (item.file === undefined) return item
-        const file = unquoteGitPath(item.file)
-        if (file === item.file) return item
-        return { ...item, file }
-      })
-      const changed = next.some((item, i) => item.file !== diffs[i]?.file)
+      const next = diffs
+        .map((item) => {
+          if (item.file === undefined) return item
+          const file = unquoteGitPath(item.file)
+          if (file === item.file) return item
+          return { ...item, file }
+        })
+        .filter((item) => !isExcludedChange(item.file))
+      const changed = next.length !== diffs.length || next.some((item, i) => item.file !== diffs[i]?.file)
       if (changed) yield* storage.write(["session_diff", input.sessionID], next).pipe(Effect.ignore)
       return next
     })
