@@ -86,6 +86,17 @@ describe("file HttpApi", () => {
     expect(await styles.text()).toContain("color: red")
   })
 
+  test("does not expose browser previews to arbitrary origins", async () => {
+    await using tmp = await tmpdir({ git: false })
+    await Bun.write(path.join(tmp.path, "index.html"), "<h1>preview</h1>")
+
+    const route = filePreviewPath({ directory: tmp.path, authToken: "preview-token", path: "index.html" })
+    const response = await request(route, tmp.path, undefined, { headers: { origin: "https://evil.example" } })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("access-control-allow-origin")).toBeNull()
+  })
+
   test("returns small PPTX files as previewable binary content", async () => {
     await using tmp = await tmpdir({ git: false })
     await Bun.write(path.join(tmp.path, "slides.pptx"), new Uint8Array(77 * 1024))

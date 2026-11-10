@@ -103,8 +103,10 @@ const serve = Effect.fn("FileHttpApi.media")(function* () {
 
   const headers = responseHeaders(fullPath, metadata.size, metadata.mtimeMs)
   if (filePreview) {
+    // Preview documents are rendered in an iframe navigation; they do not need
+    // a wildcard CORS grant. Let the server-wide CORS policy decide which
+    // origins may read project files.
     headers.set("cache-control", "no-cache")
-    headers.set("access-control-allow-origin", "*")
   }
   const etag = headers.get("etag")
   if (etag && request.headers["if-none-match"] === etag) {
