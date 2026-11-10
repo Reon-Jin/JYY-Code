@@ -8,6 +8,34 @@ import * as Log from "@jyycode-ai/core/util/log"
 
 const skillConcurrency = 4
 const fileConcurrency = 8
+const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i
+
+// A skill name becomes a directory directly under the cache. Keep it a single
+// safe path segment so a remote index cannot escape the cache root.
+function safeSkillName(name: string) {
+  return (
+    name.length > 0 &&
+    name === name.trim() &&
+    name !== "." &&
+    name !== ".." &&
+    !name.includes("/") &&
+    !name.includes("\\") &&
+    !name.includes("\0") &&
+    !WINDOWS_RESERVED_NAME.test(name)
+  )
+}
+
+// Index files are resolved below the skill directory. Reject absolute paths
+// and dot segments so a remote index cannot write outside the skill cache.
+function safeSkillFile(file: string) {
+  if (file.length === 0 || file.includes("\0")) return false
+  const normalized = file.replaceAll("\\", "/")
+  // Reject absolute URLs (including scheme-relative forms) and Windows drive
+  // paths so an index cannot redirect a download to another origin.
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(normalized)) return false
+  const segments = normalized.split("/")
+  return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..")
+}
 
 class IndexSkill extends Schema.Class<IndexSkill>("IndexSkill")({
   name: Schema.String,
@@ -73,6 +101,14 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Path.Pat
         if (!data) return []
 
         const list = data.skills.filter((skill) => {
+          if (!safeSkillName(skill.name)) {
+            log.warn("skill entry has unsafe name", { url: index, skill: skill.name })
+            return false
+          }
+          if (!skill.files.every(safeSkillFile)) {
+            log.warn("skill entry has unsafe file path", { url: index, skill: skill.name })
+            return false
+          }
           if (!skill.files.includes("SKILL.md")) {
             log.warn("skill entry missing SKILL.md", { url: index, skill: skill.name })
             return false
