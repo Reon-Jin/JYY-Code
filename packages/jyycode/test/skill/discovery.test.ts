@@ -4,6 +4,7 @@ import { Effect, Layer } from "effect"
 import { Discovery } from "../../src/skill/discovery"
 import { Global } from "@jyycode-ai/core/global"
 import { Filesystem } from "@/util/filesystem"
+import { randomUUID } from "node:crypto"
 import { rm } from "fs/promises"
 import path from "path"
 import { testEffect } from "../lib/effect"
@@ -14,15 +15,38 @@ let downloadCount = 0
 
 const fixturePath = path.join(import.meta.dir, "../fixture/skills")
 const cacheDir = path.join(Global.Path.cache, "skills")
+const traversalMarker = `jyycode-discovery-${randomUUID()}`
+const escapedCacheDir = path.join(Global.Path.cache, "..", traversalMarker)
+const escapedCacheFile = path.join(Global.Path.cache, "..", `${traversalMarker}-file.txt`)
 const it = testEffect(Layer.mergeAll(Discovery.defaultLayer, AppFileSystem.defaultLayer))
+
+async function cleanTraversalArtifacts() {
+  await rm(escapedCacheDir, { recursive: true, force: true })
+  await rm(escapedCacheFile, { force: true })
+}
 
 beforeAll(async () => {
   await rm(cacheDir, { recursive: true, force: true })
+  await cleanTraversalArtifacts()
 
   server = Bun.serve({
     port: 0,
     async fetch(req) {
       const url = new URL(req.url)
+
+      // A remote index that tries to escape the skill cache through the skill
+      // name and through one of its file paths.
+      if (url.pathname === "/traversal/index.json") {
+        return Response.json({
+          skills: [
+            { name: `../../${traversalMarker}`, files: ["SKILL.md"] },
+            { name: "unsafe-files", files: ["SKILL.md", `../../../${traversalMarker}-file.txt`] },
+          ],
+        })
+      }
+      if (url.pathname.startsWith("/traversal/") || url.pathname.includes(traversalMarker)) {
+        return new Response("remote skill payload")
+      }
 
       // route /.well-known/skills/* to the fixture directory
       if (url.pathname.startsWith("/.well-known/skills/")) {
@@ -47,6 +71,7 @@ beforeAll(async () => {
 afterAll(async () => {
   void server?.stop()
   await rm(cacheDir, { recursive: true, force: true })
+  await cleanTraversalArtifacts()
 })
 
 describe("Discovery.pull", () => {
@@ -91,6 +116,17 @@ describe("Discovery.pull", () => {
       const discovery = yield* Discovery.Service
       const dirs = yield* discovery.pull(`http://localhost:${server.port}/some-other-path/`)
       expect(dirs).toEqual([])
+    }),
+  )
+
+  it.live("ignores index entries that would write outside the cache", () =>
+    Effect.gen(function* () {
+      const discovery = yield* Discovery.Service
+      const dirs = yield* discovery.pull(`http://localhost:${server.port}/traversal/`)
+
+      expect(dirs).toEqual([])
+      expect(yield* Effect.promise(() => Filesystem.exists(path.join(escapedCacheDir, "SKILL.md")))).toBe(false)
+      expect(yield* Effect.promise(() => Filesystem.exists(escapedCacheFile))).toBe(false)
     }),
   )
 
