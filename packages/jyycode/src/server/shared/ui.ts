@@ -38,7 +38,13 @@ function proxyResponseHeaders(headers: Record<string, string>) {
 }
 
 export function upstreamURL(path: string) {
-  return new URL(path, UI_UPSTREAM).toString()
+  // `new URL("//host", base)` treats the input as protocol-relative and would
+  // proxy to that host. Collapse leading separators so the UI fallback can
+  // only ever request paths on UI_UPSTREAM.
+  const relative = `/${path.replace(/^[/\\]+/, "")}`
+  const url = new URL(relative, UI_UPSTREAM)
+  if (url.origin !== UI_UPSTREAM.origin) throw new Error(`Refusing to proxy the web UI to ${url.origin}`)
+  return url.toString()
 }
 
 export function embeddedUI(disableEmbeddedWebUi: boolean) {

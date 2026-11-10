@@ -17,7 +17,7 @@ import { RuntimeFlags } from "../../src/effect/runtime-flags"
 import { ServerAuth } from "../../src/server/auth"
 import { authorizationRouterMiddleware } from "../../src/server/routes/instance/httpapi/middleware/authorization"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
-import { serveEmbeddedUIEffect, serveUIEffect } from "../../src/server/shared/ui"
+import { serveEmbeddedUIEffect, serveUIEffect, upstreamURL } from "../../src/server/shared/ui"
 import { testEffect } from "../lib/effect"
 
 void Log.init({ print: false })
@@ -202,6 +202,14 @@ describe("HttpApi UI fallback", () => {
       expect(response.headers.get("content-type")).toContain("text/html")
       expect(yield* responseText(response)).toBe("<html>jyycode</html>")
       expect(proxiedUrl).toBe("https://app.jyycode.ai/")
+    }),
+  )
+
+  it.live("keeps the UI fallback on its configured upstream", () =>
+    Effect.sync(() => {
+      expect(upstreamURL("//evil.example/path")).toBe("https://app.jyycode.ai/evil.example/path")
+      expect(upstreamURL("/\\evil.example/path")).toBe("https://app.jyycode.ai/evil.example/path")
+      expect(upstreamURL("https://evil.example/")).toBe("https://app.jyycode.ai/https://evil.example/")
     }),
   )
 
